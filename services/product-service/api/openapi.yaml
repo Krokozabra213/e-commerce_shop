@@ -1,0 +1,671 @@
+openapi: 3.0.3
+info:
+  title: Product Service API
+  version: 1.0.0
+  description: |
+    API для управления товарами и категориями.
+    
+    Авторизация: запросы проходят через API Gateway, который проверяет JWT
+    и проксирует заголовки X-User-Id и X-User-Roles в микросервис.
+    Проверка ролей выполняется в middleware на уровне сервиса.
+    
+    Цена: все цены указаны в копейках (целое число, без дробной части).
+    Например, 9999900 = 99 999 рублей 00 копеек.
+
+servers:
+  - url: http://localhost:8082/api/v1
+    description: Local development
+
+tags:
+  - name: products
+    description: Операции с товарами
+  - name: categories
+    description: Операции с категориями
+
+paths:
+
+  /products:
+    get:
+      summary: Список товаров с фильтрами и пагинацией
+      tags: [products]
+      operationId: listProducts
+      description: |
+        Возвращает только опубликованные (published=true) и не удалённые
+        (deletedAt IS NULL) товары.
+        
+        Курсорная пагинация: параметр cursor — opaque-токен в base64,
+        полученный из ответа (поле nextCursor). Клиент не должен его
+        декодировать или модифицировать — просто передать обратно.
+        Если nextCursor равен null — достигнут конец списка.
+      parameters:
+        - name: category
+          in: query
+          description: Фильтр по slug категории
+          schema:
+            type: string
+            example: smartphones
+        - name: price_min
+          in: query
+          description: Минимальная цена в копейках (без дробной части)
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+            example: 100000
+        - name: price_max
+          in: query
+          description: Максимальная цена в копейках (без дробной части)
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+            example: 500000
+        - name: search
+          in: query
+          description: Текстовый поиск по названию и описанию
+          schema:
+            type: string
+            example: iPhone
+        - name: sort
+          in: query
+          description: |
+            Сортировка результатов.
+            - latest — сначала новые (по убыванию даты создания)
+            - price_asc — по возрастанию цены
+            - price_desc — по убыванию цены
+          schema:
+            type: string
+            enum: [latest, price_asc, price_desc]
+            default: latest
+        - name: cursor
+          in: query
+          description: |
+            Opaque-токен в base64 для получения следующей страницы.
+            Получается из поля nextCursor предыдущего ответа.
+            Не декодировать и не модифицировать.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: |
+            Количество элементов на странице.
+            Если не указано — используется значение по умолчанию 20.
+            Максимальное значение — 100.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      summary: Создать товар
+      tags: [products]
+      operationId: createProduct
+      description: Создаёт новый товар. Доступно только менеджерам и администраторам.
+      security:
+        - GatewayAuth: []
+      x-required-roles: ["ROLE_MANAGER", "ROLE_ADMIN"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductRequest'
+      responses:
+        '201':
+          description: Товар создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /products/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: ID товара (MongoDB ObjectId)
+        schema:
+          type: string
+          pattern: '^[a-f0-9]{24}$'
+          example: 507f1f77bcf86cd799439011
+
+    get:
+      summary: Получить товар по ID
+      tags: [products]
+      operationId: getProduct
+      description: |
+        Возвращает товар по ID.
+        Если товар удалён (soft delete) — возвращает 404.
+        Если товар не опубликован (published=false) — возвращает 404
+        (для публичных запросов без авторизации).
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    put:
+      summary: Обновить товар
+      tags: [products]
+      operationId: updateProduct
+      description: |
+        Полное или частичное обновление товара.
+        Поля, не указанные в теле запроса, остаются без изменений.
+      security:
+        - GatewayAuth: []
+      x-required-roles: ["ROLE_MANAGER", "ROLE_ADMIN"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProductRequest'
+      responses:
+        '200':
+          description: Товар обновлён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      summary: Удалить товар
+      tags: [products]
+      operationId: deleteProduct
+      description: |
+        Мягкое удаление товара: устанавливает deletedAt в текущее время.
+        Товар перестаёт отображаться в публичных запросах, но остаётся в базе.
+      security:
+        - GatewayAuth: []
+      x-required-roles: ["ROLE_ADMIN"]
+      responses:
+        '204':
+          description: Товар удалён (soft delete)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /products/{id}/publish:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: ID товара (MongoDB ObjectId)
+        schema:
+          type: string
+          pattern: '^[a-f0-9]{24}$'
+
+    post:
+      summary: Переключить статус публикации товара
+      tags: [products]
+      operationId: togglePublish
+      description: |
+        Переключает поле published: true → false или false → true.
+        Возвращает обновлённый товар.
+      security:
+        - GatewayAuth: []
+      x-required-roles: ["ROLE_MANAGER", "ROLE_ADMIN"]
+      responses:
+        '200':
+          description: Статус изменён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /categories:
+    get:
+      summary: Список категорий
+      tags: [categories]
+      operationId: listCategories
+      description: Возвращает список всех категорий.
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryListResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      summary: Создать категорию
+      tags: [categories]
+      operationId: createCategory
+      description: |
+        Создаёт новую категорию.
+        Возвращает 409, если категория с таким slug уже существует.
+      security:
+        - GatewayAuth: []
+      x-required-roles: ["ROLE_ADMIN"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCategoryRequest'
+      responses:
+        '201':
+          description: Категория создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /categories/{slug}:
+    parameters:
+      - name: slug
+        in: path
+        required: true
+        description: Slug категории
+        schema:
+          type: string
+          pattern: '^[a-z0-9-]+$'
+          example: smartphones
+
+    get:
+      summary: Получить категорию по slug
+      tags: [categories]
+      operationId: getCategory
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    put:
+      summary: Обновить категорию
+      tags: [categories]
+      operationId: updateCategory
+      description: |
+        Полное или частичное обновление категории.
+        Поля, не указанные в теле запроса, остаются без изменений.
+      security:
+        - GatewayAuth: []
+      x-required-roles: ["ROLE_ADMIN"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCategoryRequest'
+      responses:
+        '200':
+          description: Категория обновлена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      summary: Удалить категорию
+      tags: [categories]
+      operationId: deleteCategory
+      description: |
+        Удаляет категорию.
+        Если в категории есть товары — возвращает 409 с описанием ошибки.
+      security:
+        - GatewayAuth: []
+      x-required-roles: ["ROLE_ADMIN"]
+      responses:
+        '204':
+          description: Категория удалена
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: В категории есть товары, удаление невозможно
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    GatewayAuth:
+      type: apiKey
+      in: header
+      name: X-User-Id
+      description: |
+        Авторизация через API Gateway. Gateway проверяет JWT-токен
+        и проксирует в сервис два заголовка:
+        
+        - X-User-Id — идентификатор пользователя (ObjectId или UUID)
+        - X-User-Roles — роли пользователя через запятую (например: ROLE_ADMIN,ROLE_MANAGER)
+        
+        Middleware сервиса проверяет наличие и соответствие ролей
+        согласно расширению x-required-roles на каждом эндпоинте.
+
+  schemas:
+    Product:
+      type: object
+      description: Товар. Поле deletedAt не возвращается в API — удалённые товары недоступны.
+      required:
+        - id
+        - name
+        - price
+        - categorySlug
+        - published
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          description: MongoDB ObjectId
+          example: 507f1f77bcf86cd799439011
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: iPhone 15 Pro
+        description:
+          type: string
+          nullable: true
+          maxLength: 2000
+          example: Титановый корпус, чип A17 Pro
+        price:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Цена в копейках (целое число, без дробной части)
+          example: 9999900
+        categorySlug:
+          type: string
+          example: smartphones
+        published:
+          type: boolean
+          description: Опубликован ли товар (доступен в публичном каталоге)
+          example: true
+        createdAt:
+          type: string
+          format: date-time
+          example: '2024-01-15T10:30:00Z'
+        updatedAt:
+          type: string
+          format: date-time
+          example: '2024-01-15T10:30:00Z'
+
+    CreateProductRequest:
+      type: object
+      description: Создание нового товара. Цена указывается в копейках (без дробной части).
+      required:
+        - name
+        - price
+        - categorySlug
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+        price:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Цена в копейках (целое число, без дробной части)
+          example: 9999900
+        categorySlug:
+          type: string
+          example: smartphones
+        published:
+          type: boolean
+          default: false
+          description: Опубликовать сразу или сохранить как черновик
+
+    UpdateProductRequest:
+      type: object
+      description: |
+        Частичное обновление товара. Указывайте только поля, которые нужно изменить.
+        Цена указывается в копейках (без дробной части).
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          nullable: true
+          maxLength: 2000
+        price:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Цена в копейках (целое число, без дробной части)
+          example: 9999900
+        categorySlug:
+          type: string
+        published:
+          type: boolean
+
+    ProductListResponse:
+      type: object
+      description: |
+        Страница списка товаров с курсорной пагинацией.
+        Если nextCursor равен null — это последняя страница.
+        Для запроса следующей страницы передайте nextCursor в параметр cursor.
+      required:
+        - items
+        - hasMore
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+        nextCursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque-токен в base64 для запроса следующей страницы.
+            Передайте его в параметр cursor при следующем запросе.
+            Null, если это последняя страница.
+          example: eyJfaWQiOiI1MDdmMWY3N2JjZjg2Y2Q3OTk0MzkwMTEifQ==
+        hasMore:
+          type: boolean
+          description: Есть ли ещё товары за пределами текущей страницы
+
+    Category:
+      type: object
+      required:
+        - id
+        - name
+        - slug
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          description: MongoDB ObjectId
+          example: 507f191e810c19729de860ea
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: Смартфоны
+        slug:
+          type: string
+          pattern: '^[a-z0-9-]+$'
+          example: smartphones
+        description:
+          type: string
+          nullable: true
+          maxLength: 500
+          example: Мобильные телефоны и аксессуары
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateCategoryRequest:
+      type: object
+      required:
+        - name
+        - slug
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: Смартфоны
+        slug:
+          type: string
+          pattern: '^[a-z0-9-]+$'
+          example: smartphones
+        description:
+          type: string
+          maxLength: 500
+
+    UpdateCategoryRequest:
+      type: object
+      description: Частичное обновление категории. Slug обновлять нельзя.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          nullable: true
+          maxLength: 500
+
+    CategoryListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Category'
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Человекочитаемое описание ошибки
+          example: invalid input
+
+  responses:
+    BadRequest:
+      description: Некорректный запрос (ошибка валидации)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Требуется авторизация (отсутствует заголовок X-User-Id)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Недостаточно прав (роль пользователя не входит в x-required-roles)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Ресурс не найден (или удалён)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Конфликт (например, slug категории уже существует)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Внутренняя ошибка сервера
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

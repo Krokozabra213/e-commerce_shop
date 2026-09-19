@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package events.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/Krokozabra213/e-commerce_shop/api/gen/go/proto/events/v1;eventsv1";
+
+message UserCreated {
+  User user = 1;
+  google.protobuf.Timestamp event_time = 2;
+}
+
+message User {
+  string id = 1;
+  string email = 2;
+  repeated string roles = 3;
+  google.protobuf.Timestamp created_at = 4;
+}

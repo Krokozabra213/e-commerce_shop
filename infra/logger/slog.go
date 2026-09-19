@@ -1,0 +1,56 @@
+package logger
+
+import (
+	"log/slog"
+	"os"
+
+	"github.com/Krokozabra213/e-commerce_shop/infra/config"
+)
+
+func Init(opts *infracfg.SlogConfig, handler ...slog.Handler) *slog.Logger {
+	var h slog.Handler
+	if len(handler) > 0 && handler[0] != nil {
+		h = handler[0]
+	} else {
+		h = defaultHandler(opts)
+	}
+
+	log := slog.New(h)
+	slog.SetDefault(log)
+	return log
+}
+
+func ErrAttr(err error) slog.Attr {
+	return slog.Any("error", err)
+}
+
+func OpAttr(op string) slog.Attr {
+	return slog.String("op.name", op)
+}
+
+func defaultHandler(cfg *infracfg.SlogConfig) slog.Handler {
+	opts := &slog.HandlerOptions{
+		Level:     parseLevel(cfg.Level),
+		AddSource: cfg.AddSource,
+	}
+
+	switch cfg.Format {
+	case "text":
+		return slog.NewTextHandler(os.Stdout, opts)
+	default:
+		return slog.NewJSONHandler(os.Stdout, opts)
+	}
+}
+
+func parseLevel(s string) slog.Level {
+	switch s {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}

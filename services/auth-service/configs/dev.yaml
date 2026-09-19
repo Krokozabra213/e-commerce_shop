@@ -1,0 +1,38 @@
+app:
+  name: "auth-service"
+
+postgres:
+  host: "postgres"
+  port: "5432"
+  user: "postgres"
+  dbName: "postgres"
+  password: "postgres"
+
+http:
+  host: "0.0.0.0"
+  port: "8100"
+  readTimeout: 10s
+  writeTimeout: 10s
+  maxHeaderBytes: 1
+  bodyLimitBytes: 4
+  allowedOrigins:
+    - "http://localhost:8100"
+    - "http://localhost:3000"
+
+slog:
+  level: "debug"
+  format: "text"
+  add_source: true
+
+oauth:
+  google:
+    enabled: true
+  github:
+    enabled: true
+
+auth_jwt:
+  issuer: "auth-service"
+  algorithm: "RS256"
+
+kafka_producer:
+  brokers: ["kafka:29092"]

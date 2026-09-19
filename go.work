@@ -1,0 +1,13 @@
+go 1.26.4
+
+use (
+	./api
+	./infra
+	./services/api-gateway
+	./services/auth-service
+	./services/inventory-service
+	./services/notification-service
+	./services/order-service
+	./services/product-service
+	./services/user-service
+)

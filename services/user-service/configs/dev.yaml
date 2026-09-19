@@ -1,0 +1,32 @@
+app:
+  name: "user-service"
+
+postgres:
+  host: "postgres"
+  port: "5432"
+  user: "postgres"
+  dbName: "postgres"
+  password: "postgres"
+
+http:
+  host: "0.0.0.0"
+  port: "8200"
+  readTimeout: 10s
+  writeTimeout: 10s
+  maxHeaderBytes: 1
+  bodyLimitBytes: 4
+  allowedOrigins:
+    - "http://localhost:3000"
+
+slog:
+  level: "debug"
+  format: "text"
+  add_source: true
+
+kafkaConsumer:
+  brokers:
+    - "kafka:29092"
+  groupID: "user-service"
+  topic: "user.created"
+  dlqTopic: "user.created.dlq"
+
