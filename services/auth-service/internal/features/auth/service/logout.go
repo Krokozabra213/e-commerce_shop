@@ -20,4 +20,3 @@ func (s *Service) Logout(ctx context.Context, input LogoutInput) error {
 
 	return nil
 }
-p

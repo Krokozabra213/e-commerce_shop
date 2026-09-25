@@ -17,3 +17,5 @@ CREATE INDEX idx_users_deleted_at ON users(deleted_at) WHERE deleted_at IS NULL;
 
 -- +goose Down
 SELECT 'down SQL query';
+
+DROP TABLE IF EXISTS users;

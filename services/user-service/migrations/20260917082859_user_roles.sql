@@ -9,3 +9,5 @@ CREATE TABLE user_roles (
 
 -- +goose Down
 SELECT 'down SQL query';
+
+DROP TABLE IF EXISTS user_roles;

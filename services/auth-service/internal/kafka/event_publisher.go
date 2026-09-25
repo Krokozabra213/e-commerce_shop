@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	infrakafka "github.com/Krokozabra213/e-commerce_shop/infra/kafka"
 	"github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/domain"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -38,7 +39,7 @@ func (p *EventPublisher) Publish(ctx context.Context, event *domain.OutboxEvent)
 	topic := event.EventType
 
 	switch event.EventType {
-	case "user.created":
+	case infrakafka.TopicUserCreated:
 		return p.publishUserCreated(ctx, topic, event)
 	default:
 		return fmt.Errorf("unknown event type: %s", event.EventType)

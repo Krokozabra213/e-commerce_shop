@@ -20,54 +20,103 @@ func NewErrorHandler(logger *slog.Logger) *ErrorHandlerMiddleware {
 }
 
 func (h *ErrorHandlerMiddleware) Handle(ctx fiber.Ctx, err error) error {
-	code := http.StatusInternalServerError
-	message := "Internal server error"
-
-	var e *fiber.Error
-	if errors.As(err, &e) {
-		code = e.Code
-		message = e.Message
+	var fiberErr *fiber.Error
+	if errors.As(err, &fiberErr) {
+		return h.handleFiberError(ctx, fiberErr)
 	}
 
-	var apiErr *apperror.AppError
-	if errors.As(err, &apiErr) {
-		code = mapKindToStatus(apiErr.Code())
-		message = apiErr.Message()
+	var appErr *apperror.AppError
+	if errors.As(err, &appErr) {
+		return h.handleAppError(ctx, appErr)
 	}
 
-	if code >= http.StatusInternalServerError {
-		h.logger.Error("internal server error",
-			slog.Any("error", err),
+	return h.handleUnknownError(ctx, err)
+}
+
+func (h *ErrorHandlerMiddleware) handleFiberError(ctx fiber.Ctx, err *fiber.Error) error {
+	if err.Code >= http.StatusInternalServerError {
+		h.logger.Error("fiber error",
+			slog.Int("status", err.Code),
+			slog.String("message", err.Message),
 			slog.String("path", ctx.Path()),
 			slog.String("method", ctx.Method()),
 		)
+	} else {
+		h.logger.Info("fiber error",
+			slog.Int("status", err.Code),
+			slog.String("message", err.Message),
+			slog.String("path", ctx.Path()),
+			slog.String("method", ctx.Method()),
+		)
+	}
 
-		ctx.Status(code)
-		return ctx.JSON(fiber.Map{
+	return ctx.Status(err.Code).JSON(fiber.Map{
+		"error": err.Message,
+	})
+}
+
+func (h *ErrorHandlerMiddleware) handleAppError(ctx fiber.Ctx, appErr *apperror.AppError) error {
+	statusCode := mapAppCodeToStatus(appErr.Code())
+	slogLevel := mapAppLevelToSlog(appErr.LogLevel())
+
+	attrs := []slog.Attr{
+		slog.String("path", ctx.Path()),
+		slog.String("method", ctx.Method()),
+		slog.String("code", appErr.Code().String()),
+		slog.Int("status", statusCode),
+	}
+
+	if appErr.Op() != "" {
+		attrs = append(attrs, slog.String("op", appErr.Op()))
+	}
+
+	if appErr.Err() != nil {
+		attrs = append(attrs, slog.String("error", appErr.Err().Error()))
+	}
+
+	if appErr.Attrs() != nil {
+		attrs = append(attrs, appErr.Attrs().ToAttrs()...)
+	}
+
+	h.logger.LogAttrs(ctx.Context(), slogLevel, appErr.Message(), attrs...)
+
+	if statusCode >= http.StatusInternalServerError {
+		return ctx.Status(statusCode).JSON(fiber.Map{
 			"error": "Internal server error",
 		})
 	}
 
-	ctx.Status(code)
-	return ctx.JSON(fiber.Map{
-		"error": message,
+	return ctx.Status(statusCode).JSON(fiber.Map{
+		"error": appErr.Message(),
 	})
 }
 
-func mapKindToStatus(code apperror.Code) int {
-	switch code {
-	case apperror.CodeBadRequest, apperror.CodeValidation:
-		return http.StatusBadRequest
-	case apperror.CodeAlreadyExists:
-		return http.StatusConflict
-	case apperror.CodeUnauthorized:
-		return http.StatusUnauthorized
-	case apperror.CodeNotFound:
-		return http.StatusNotFound
-	case apperror.CodeForbidden:
-		return http.StatusForbidden
+func (h *ErrorHandlerMiddleware) handleUnknownError(ctx fiber.Ctx, err error) error {
+	h.logger.Error("unhandled error",
+		slog.String("path", ctx.Path()),
+		slog.String("method", ctx.Method()),
+		slog.Any("error", err),
+	)
 
-	default:
-		return http.StatusInternalServerError
+	return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
+		"error": "Internal server error",
+	})
+}
+
+func mapAppCodeToStatus(code apperror.Code) int {
+	if status, ok := statusMapping[code]; ok {
+		return status
 	}
+	return http.StatusInternalServerError
+}
+
+var statusMapping = map[apperror.Code]int{
+	apperror.CodeBadRequest:    http.StatusBadRequest,
+	apperror.CodeValidation:    http.StatusBadRequest,
+	apperror.CodeAlreadyExists: http.StatusConflict,
+	apperror.CodeConflict:      http.StatusConflict,
+	apperror.CodeUnauthorized:  http.StatusUnauthorized,
+	apperror.CodeNotFound:      http.StatusNotFound,
+	apperror.CodeForbidden:     http.StatusForbidden,
+	apperror.CodeInternal:      http.StatusInternalServerError,
 }

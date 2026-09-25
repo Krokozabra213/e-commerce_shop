@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/apperror"
+	infrakafka "github.com/Krokozabra213/e-commerce_shop/infra/kafka"
 	"github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/domain"
 	"github.com/google/uuid"
 )
@@ -49,7 +50,7 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (*RegisterO
 			ID:            uuid.New(),
 			AggregateType: "user",
 			AggregateID:   user.ID,
-			EventType:     "user.created",
+			EventType:     infrakafka.TopicUserCreated,
 			Payload: map[string]interface{}{
 				"id":         user.ID.String(),
 				"email":      user.Email,

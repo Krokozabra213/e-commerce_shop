@@ -1,4 +1,4 @@
-package mongodb
+package productMongo
 
 import (
 	"context"
@@ -24,7 +24,8 @@ func SetupIndexes(ctx context.Context, db *mongo.Database) error {
 
 func setupProductIndexes(ctx context.Context, coll *mongo.Collection) error {
 	indexes := []mongo.IndexModel{
-		// 1. Сортировка по новизне (без фильтра цены)
+		// 1. Основной индекс для сортировки по новизне
+		// Покрывает: GET /products?sort=latest, GET /products?category=X&sort=latest
 		{
 			Keys: bson.D{
 				{Key: "published", Value: 1},
@@ -36,7 +37,8 @@ func setupProductIndexes(ctx context.Context, coll *mongo.Collection) error {
 			Options: options.Index().SetName("idx_main_latest"),
 		},
 
-		// 2. Сортировка по цене (ASC/DESC через reverse scan)
+		// 2. Индекс для сортировки по цене (ASC/DESC через reverse scan)
+		// Покрывает: GET /products?sort=price_asc, GET /products?sort=price_desc
 		{
 			Keys: bson.D{
 				{Key: "published", Value: 1},
@@ -48,7 +50,8 @@ func setupProductIndexes(ctx context.Context, coll *mongo.Collection) error {
 			Options: options.Index().SetName("idx_main_price"),
 		},
 
-		// 3. Фильтр по диапазону цен + сортировка по новизне
+		// 3. Индекс для фильтра по диапазону цен + сортировка по новизне
+		// Покрывает: GET /products?category=X&price_min=Y&price_max=Z&sort=latest
 		{
 			Keys: bson.D{
 				{Key: "published", Value: 1},
@@ -62,6 +65,7 @@ func setupProductIndexes(ctx context.Context, coll *mongo.Collection) error {
 		},
 
 		// 4. Текстовый поиск (только опубликованные)
+		// Покрывает: GET /products?search=iPhone
 		{
 			Keys: bson.D{
 				{Key: "name", Value: "text"},

@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package inventory.v1;
+
+option go_package = "github.com/Krokozabra213/e-commerce_shop/api/gen/go/proto/inventory/v1;inventoryv1";
+
+
+service InventoryServiceAPI {
+
+  rpc GetStock(GetStockRequest) returns (GetStockResponse);
+
+  rpc GetStockByProductID(GetStockByProductIDRequest) returns (GetStockByProductIDResponse);
+}
+
+message GetStockRequest {
+  repeated string product_ids = 1;
+}
+
+message GetStockResponse {
+  map<string, int32> quantities = 1;
+}
+
+
+message GetStockByProductIDRequest {
+  string product_id = 1;
+}
+
+message GetStockByProductIDResponse {
+  int32 quantity = 1;
+  bool in_stock = 2;
+}

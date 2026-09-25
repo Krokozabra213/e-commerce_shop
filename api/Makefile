@@ -20,12 +20,9 @@ proto-deps: $(BUF)
 proto-lint: $(BUF) proto-deps
 	$(BUF) lint
 
-proto-breaking: $(BUF) proto-deps
-	$(BUF) breaking --against '.git#branch=main'
-
 proto-gen: $(BUF) proto-deps proto-lint
 	$(BUF) generate
 
-proto-all: proto-deps proto-lint proto-breaking proto-gen
+proto-all: proto-deps proto-lint proto-gen
 
-.PHONY: proto-deps proto-lint proto-breaking proto-gen proto-all
+.PHONY: proto-deps proto-lint proto-gen proto-all

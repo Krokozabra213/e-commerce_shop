@@ -1,4 +1,18 @@
 services:
+  server:
+    container_name: product-service
+    build:
+      context: ../..
+      dockerfile: services/product-service/Dockerfile
+    restart: always
+    ports:
+      - "8300:8300"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    env_file:
+      - .env
+
   mongodb:
     image: mongo:7.0.5
     container_name: ecommerce-mongodb

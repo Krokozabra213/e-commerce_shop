@@ -14,6 +14,7 @@ import (
 type OutboxRepository interface {
 	ClaimBatch(
 		ctx context.Context,
+		eventType string,
 		batchSize int,
 		workerID string,
 		lease time.Duration,
@@ -51,8 +52,8 @@ func New(
 	}
 }
 
-func (s *Service) ProcessBatch(ctx context.Context) (int, error) {
-	events, err := s.repo.ClaimBatch(ctx, s.outboxConfig.BatchSize, s.workerID, s.outboxConfig.Lease)
+func (s *Service) ProcessBatch(ctx context.Context, eventType string) (int, error) {
+	events, err := s.repo.ClaimBatch(ctx, eventType, s.outboxConfig.BatchSize, s.workerID, s.outboxConfig.Lease)
 	if err != nil {
 		return 0, fmt.Errorf("claim batch: %w", err)
 	}

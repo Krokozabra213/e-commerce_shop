@@ -12,6 +12,7 @@ import (
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/httpx"
 	infrajwt "github.com/Krokozabra213/e-commerce_shop/infra/jwt"
+	infrakafka "github.com/Krokozabra213/e-commerce_shop/infra/kafka"
 	"github.com/Krokozabra213/e-commerce_shop/infra/logger"
 	inframiddleware "github.com/Krokozabra213/e-commerce_shop/infra/middleware"
 	"github.com/Krokozabra213/e-commerce_shop/infra/postgres"
@@ -74,7 +75,7 @@ func run() error {
 		RSAPrivateKey: privateKey,
 	})
 
-	kafkaProducer, err := kafka.NewKGOProducer(cfg.KafkaProducer, log)
+	kafkaProducer, err := infrakafka.NewKGOProducer(cfg.KafkaProducer, log)
 	if err != nil {
 		return err
 	}
@@ -84,7 +85,7 @@ func run() error {
 
 	outboxRepository := outboxRepo.NewPostgresOutboxRepository(pool)
 	outboxService := outboxservice.New(outboxRepository, eventPublisher, log, cfg.UserCreatedOutbox)
-	batchWorker := worker.NewWorker(log, outboxService, cfg.UserCreatedOutbox.PollInterval, cfg.UserCreatedOutbox.ErrorBackoff)
+	batchWorker := worker.NewWorker(log, outboxService, cfg.UserCreatedOutbox.PollInterval, cfg.UserCreatedOutbox.ErrorBackoff, infrakafka.TopicUserCreated)
 	go func() { batchWorker.Run(context.Background()) }()
 
 	requestLogger := inframiddleware.RequestLogger(log)

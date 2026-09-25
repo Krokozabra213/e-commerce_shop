@@ -70,6 +70,7 @@ func (r *PostgresOutboxRepository) Create(ctx context.Context, event *domain.Out
 
 func (r *PostgresOutboxRepository) ClaimBatch(
 	ctx context.Context,
+	eventType string,
 	batchSize int,
 	workerID string,
 	lease time.Duration,
@@ -85,6 +86,7 @@ func (r *PostgresOutboxRepository) ClaimBatch(
 			SELECT id
 			FROM outbox
 			WHERE published_at IS NULL
+			  AND event_type = @event_type
 			  AND (locked_until IS NULL OR locked_until < now())
 			ORDER BY created_at
 			LIMIT @batch_size

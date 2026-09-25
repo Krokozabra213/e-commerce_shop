@@ -5,15 +5,30 @@ info:
   description: |
     API для управления товарами и категориями.
     
-    Авторизация: запросы проходят через API Gateway, который проверяет JWT
+    ## Авторизация
+    Запросы проходят через API Gateway, который проверяет JWT
     и проксирует заголовки X-User-Id и X-User-Roles в микросервис.
-    Проверка ролей выполняется в middleware на уровне сервиса.
     
-    Цена: все цены указаны в копейках (целое число, без дробной части).
+    ## Тестовые пользователи для Swagger UI
+    
+    ### Администратор
+    - X-User-Id: `507f1f77bcf86cd799439011`
+    - X-User-Roles: `ROLE_ADMIN`
+    
+    ### Менеджер
+    - X-User-Id: `507f1f77bcf86cd799439012`
+    - X-User-Roles: `ROLE_MANAGER`
+    
+    ### Обычный пользователь
+    - X-User-Id: `507f1f77bcf86cd799439013`
+    - X-User-Roles: `ROLE_USER`
+    
+    ## Формат цены
+    Все цены указаны в копейках (целое число, без дробной части).
     Например, 9999900 = 99 999 рублей 00 копеек.
 
 servers:
-  - url: http://localhost:8082/api/v1
+  - url: http://localhost:8300/api/v1
     description: Local development
 
 tags:
@@ -114,7 +129,8 @@ paths:
       operationId: createProduct
       description: Создаёт новый товар. Доступно только менеджерам и администраторам.
       security:
-        - GatewayAuth: []
+        - UserIdHeader: [ ]
+          UserRolesHeader: [ ]
       x-required-roles: ["ROLE_MANAGER", "ROLE_ADMIN"]
       requestBody:
         required: true
@@ -135,6 +151,18 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Категория с указанным categorySlug не найдена (`category not found`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Такой товар уже существует (`product already exists`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -155,9 +183,7 @@ paths:
       operationId: getProduct
       description: |
         Возвращает товар по ID.
-        Если товар удалён (soft delete) — возвращает 404.
-        Если товар не опубликован (published=false) — возвращает 404
-        (для публичных запросов без авторизации).
+        Если товар удален (soft delete) или не найден — возвращает 404.
       responses:
         '200':
           description: Успешный ответ
@@ -166,7 +192,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/Product'
         '404':
-          $ref: '#/components/responses/NotFound'
+          description: Товар не найден (`product not found`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -178,7 +208,8 @@ paths:
         Полное или частичное обновление товара.
         Поля, не указанные в теле запроса, остаются без изменений.
       security:
-        - GatewayAuth: []
+        - UserIdHeader: [ ]
+          UserRolesHeader: [ ]
       x-required-roles: ["ROLE_MANAGER", "ROLE_ADMIN"]
       requestBody:
         required: true
@@ -200,7 +231,11 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
-          $ref: '#/components/responses/NotFound'
+          description: Товар не найден (`product not found`) или переданная категория не существует (`category not found`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -212,7 +247,8 @@ paths:
         Мягкое удаление товара: устанавливает deletedAt в текущее время.
         Товар перестаёт отображаться в публичных запросах, но остаётся в базе.
       security:
-        - GatewayAuth: []
+        - UserIdHeader: [ ]
+          UserRolesHeader: [ ]
       x-required-roles: ["ROLE_ADMIN"]
       responses:
         '204':
@@ -222,7 +258,11 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
-          $ref: '#/components/responses/NotFound'
+          description: Товар не найден (`product not found`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -244,7 +284,8 @@ paths:
         Переключает поле published: true → false или false → true.
         Возвращает обновлённый товар.
       security:
-        - GatewayAuth: []
+        - UserIdHeader: [ ]
+          UserRolesHeader: [ ]
       x-required-roles: ["ROLE_MANAGER", "ROLE_ADMIN"]
       responses:
         '200':
@@ -258,7 +299,11 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
-          $ref: '#/components/responses/NotFound'
+          description: Товар не найден (`product not found`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -286,7 +331,8 @@ paths:
         Создаёт новую категорию.
         Возвращает 409, если категория с таким slug уже существует.
       security:
-        - GatewayAuth: []
+        - UserIdHeader: [ ]
+          UserRolesHeader: [ ]
       x-required-roles: ["ROLE_ADMIN"]
       requestBody:
         required: true
@@ -308,7 +354,11 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '409':
-          $ref: '#/components/responses/Conflict'
+          description: Такая категория уже существует (`Такая категория уже существует`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -335,7 +385,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/Category'
         '404':
-          $ref: '#/components/responses/NotFound'
+          description: Категория не найдена (`category not found`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -347,7 +401,8 @@ paths:
         Полное или частичное обновление категории.
         Поля, не указанные в теле запроса, остаются без изменений.
       security:
-        - GatewayAuth: []
+        - UserIdHeader: [ ]
+          UserRolesHeader: [ ]
       x-required-roles: ["ROLE_ADMIN"]
       requestBody:
         required: true
@@ -369,7 +424,11 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
-          $ref: '#/components/responses/NotFound'
+          description: Категория не найдена (`category not found`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -381,7 +440,8 @@ paths:
         Удаляет категорию.
         Если в категории есть товары — возвращает 409 с описанием ошибки.
       security:
-        - GatewayAuth: []
+        - UserIdHeader: [ ]
+          UserRolesHeader: [ ]
       x-required-roles: ["ROLE_ADMIN"]
       responses:
         '204':
@@ -391,9 +451,13 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
-          $ref: '#/components/responses/NotFound'
+          description: Категория не найдена (`category not found`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: В категории есть товары, удаление невозможно
+          description: В категории есть товары, удаление невозможно (`category has %d products`)
           content:
             application/json:
               schema:
@@ -403,19 +467,35 @@ paths:
 
 components:
   securitySchemes:
-    GatewayAuth:
+    UserIdHeader:
       type: apiKey
       in: header
       name: X-User-Id
       description: |
-        Авторизация через API Gateway. Gateway проверяет JWT-токен
-        и проксирует в сервис два заголовка:
+        Идентификатор пользователя (UUID или MongoDB ObjectId).
+        Передаётся API Gateway после проверки JWT-токена.
         
-        - X-User-Id — идентификатор пользователя (ObjectId или UUID)
-        - X-User-Roles — роли пользователя через запятую (например: ROLE_ADMIN,ROLE_MANAGER)
+        Примеры:
+        - UUID: `550e8400-e29b-41d4-a716-446655440000`
+        - ObjectId: `507f1f77bcf86cd799439011`
+
+    UserRolesHeader:
+      type: apiKey
+      in: header
+      name: X-User-Roles
+      description: |
+        Роли пользователя через запятую.
+        Передаётся API Gateway после проверки JWT-токена.
         
-        Middleware сервиса проверяет наличие и соответствие ролей
-        согласно расширению x-required-roles на каждом эндпоинте.
+        Возможные роли:
+        - ROLE_USER — обычный пользователь
+        - ROLE_MANAGER — менеджер (управление товарами)
+        - ROLE_ADMIN — администратор (полный доступ)
+        
+        Примеры:
+        - `ROLE_USER`
+        - `ROLE_MANAGER,ROLE_ADMIN`
+        - `ROLE_ADMIN`
 
   schemas:
     Product:
@@ -629,42 +709,42 @@ components:
       properties:
         error:
           type: string
-          description: Человекочитаемое описание ошибки
-          example: invalid input
+          description: Сообщение об ошибке, возвращаемое клиенту
+          example: Invalid input parameter
 
   responses:
     BadRequest:
-      description: Некорректный запрос (ошибка валидации)
+      description: Некорректный запрос / Ошибка валидации
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     Unauthorized:
-      description: Требуется авторизация (отсутствует заголовок X-User-Id)
+      description: Ошибка авторизации (не передан или невалиден X-User-Id)
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     Forbidden:
-      description: Недостаточно прав (роль пользователя не входит в x-required-roles)
+      description: Доступ запрещен (недостаточно прав согласно x-required-roles)
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     NotFound:
-      description: Ресурс не найден (или удалён)
+      description: Запрашиваемый ресурс не найден
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     Conflict:
-      description: Конфликт (например, slug категории уже существует)
+      description: Конфликт состояния (например, ресурс уже существует)
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     InternalError:
-      description: Внутренняя ошибка сервера
+      description: Внутренняя ошибка сервера ("Internal server error")
       content:
         application/json:
           schema:

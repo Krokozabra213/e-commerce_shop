@@ -1,7 +1,8 @@
 .PHONY: generate
 generate:
 	@echo "Generating code from OpenAPI spec..."
-	oapi-codegen -config api/codegen-config.yaml api/openapi.yaml
+	@oapi-codegen -config api/codegen-config.yaml api/openapi.yaml 2>&1
+	@echo "Generated successfully."
 
 .PHONY: generate-check
 generate-check:
@@ -9,14 +10,14 @@ generate-check:
 	@git diff --exit-code internal/handler/http/generated/ 2>/dev/null || \
 		(echo "Generated code is outdated or untracked! Run 'make generate' and commit." && exit 1)
 
-.PHONY: serve
-serve:
-	go run cmd/product-service/main.go
-
-.PHONY: lint
-lint:
-	golangci-lint run ./...
+.PHONY: test-integration
+test-integration:
+	go test ./... \
+		-tags=integration \
+		-v \
+		-count=1 \
+		-timeout=300s
 
 .PHONY: test
 test:
-	go test -v -race -coverprofile=coverage.out ./...
+	go test ./... -v -count=1

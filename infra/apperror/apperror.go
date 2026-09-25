@@ -16,7 +16,12 @@ const (
 	CodeUnauthorized  Code = "UNAUTHORIZED"
 	CodeForbidden     Code = "FORBIDDEN"
 	CodeBadRequest    Code = "BAD_REQUEST"
+	CodeConflict      Code = "CONFLICT"
 )
+
+func (c Code) String() string {
+	return string(c)
+}
 
 type Level int
 
@@ -30,9 +35,9 @@ const (
 type AppError struct {
 	code     Code
 	message  string
-	op       string // операция на которой возникла ошибка (user.create, repo.get, etc.)
-	err      error  // оригинальная ошибка (которая пришла с репозитория)
-	attrs    Fields // structured logging
+	op       string
+	err      error
+	attrs    Fields
 	logLevel Level
 }
 

@@ -8,7 +8,7 @@ import (
 )
 
 type BatchProcessor interface {
-	ProcessBatch(ctx context.Context) (int, error)
+	ProcessBatch(ctx context.Context, eventType string) (int, error)
 	WorkerID() string
 }
 
@@ -17,6 +17,7 @@ type Worker struct {
 	processor    BatchProcessor
 	pollInterval time.Duration
 	errorBackoff time.Duration
+	eventType    string
 }
 
 func NewWorker(
@@ -24,6 +25,7 @@ func NewWorker(
 	processor BatchProcessor,
 	pollInterval time.Duration,
 	errorBackoff time.Duration,
+	eventType string,
 ) *Worker {
 	return &Worker{
 		logger: logger.With(
@@ -33,6 +35,7 @@ func NewWorker(
 		processor:    processor,
 		pollInterval: pollInterval,
 		errorBackoff: errorBackoff,
+		eventType:    eventType,
 	}
 }
 
@@ -48,7 +51,7 @@ func (w *Worker) Run(ctx context.Context) {
 			w.logger.Info("outbox worker stopping...")
 			return
 		default:
-			processedCount, err := w.processor.ProcessBatch(ctx)
+			processedCount, err := w.processor.ProcessBatch(ctx, w.eventType)
 			if err != nil {
 				w.logger.Error("failed to process outbox batch", "error", err)
 				w.sleepWithJitter(ctx, w.errorBackoff)
