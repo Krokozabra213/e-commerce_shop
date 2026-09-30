@@ -8,6 +8,10 @@ http:
     - "http://localhost:8100"
     - "http://localhost:3000"
 
+grpc:
+  host: "0.0.0.0"
+  port: "44400"
+
 slog:
   level: "debug"
   format: "text"

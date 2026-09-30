@@ -7,11 +7,14 @@ services:
     restart: always
     ports:
       - "8300:8300"
+      - "44400:44400"
     depends_on:
       mongodb:
         condition: service_healthy
     env_file:
       - .env
+    networks:
+      - ecommerce-network
 
   mongodb:
     image: mongo:7.0.5
@@ -32,13 +35,15 @@ services:
       retries: 5
       start_period: 30s
     command: ["--auth", "--bind_ip_all"]
+    networks:
+      - ecommerce-network
 
   mongo-express:
     image: mongo-express:latest
     container_name: ecommerce-mongo-express
     restart: unless-stopped
     ports:
-      - "8081:8081"
+      - "8100:8100"
     environment:
       ME_CONFIG_MONGODB_ADMINUSERNAME: admin
       ME_CONFIG_MONGODB_ADMINPASSWORD: admin123
@@ -49,6 +54,12 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
+    networks:
+      - ecommerce-network
 
 volumes:
   mongodb_data:
+
+networks:
+  ecommerce-network:
+    external: true

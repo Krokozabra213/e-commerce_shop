@@ -2,12 +2,14 @@ package kafka
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
-	"time"
 
 	infrakafka "github.com/Krokozabra213/e-commerce_shop/infra/kafka"
 	"github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/domain"
+	"github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/dto"
+	"github.com/riferrei/srclient"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -23,15 +25,22 @@ type Producer interface {
 	) error
 }
 
-type EventPublisher struct {
-	producer Producer
-	logger   *slog.Logger
+type SchemaSerializer interface {
+	Serialize(ctx context.Context, schemaID int, message proto.Message) ([]byte, error)
+	RegisterOrGetSchema(topic string, protoSchemaText string) (*srclient.Schema, error)
 }
 
-func NewEventPublisher(producer Producer, logger *slog.Logger) *EventPublisher {
+type EventPublisher struct {
+	producer       Producer
+	schemaRegistry SchemaSerializer
+	logger         *slog.Logger
+}
+
+func NewEventPublisher(producer Producer, schemaRegistry SchemaSerializer, logger *slog.Logger) *EventPublisher {
 	return &EventPublisher{
-		producer: producer,
-		logger:   logger,
+		producer:       producer,
+		schemaRegistry: schemaRegistry,
+		logger:         logger,
 	}
 }
 
@@ -57,9 +66,14 @@ func (p *EventPublisher) publishUserCreated(ctx context.Context, topic string, e
 		EventTime: timestamppb.Now(),
 	}
 
-	value, err := proto.Marshal(protoEvent)
+	schema, err := p.schemaRegistry.RegisterOrGetSchema(topic, eventsv1.EventsProtoSchema)
 	if err != nil {
-		return fmt.Errorf("marshal protobuf: %w", err)
+		return fmt.Errorf("register proto schema: %w", err)
+	}
+
+	value, err := p.schemaRegistry.Serialize(ctx, schema.ID(), protoEvent)
+	if err != nil {
+		return fmt.Errorf("serialize with schema registry: %w", err)
 	}
 
 	headers := map[string]string{
@@ -68,38 +82,33 @@ func (p *EventPublisher) publishUserCreated(ctx context.Context, topic string, e
 		"outbox-id":    event.ID.String(),
 	}
 
+	p.logger.Debug("publishing user.created event",
+		slog.String("outbox_id", event.ID.String()),
+		slog.String("user_id", user.Id),
+	)
+
 	return p.producer.ProduceSync(ctx, topic, []byte(user.Id), value, headers)
 }
 
-func mapPayloadToProtoUser(payload map[string]interface{}) (*eventsv1.User, error) {
-	id, _ := payload["id"].(string)
-	if id == "" {
+func mapPayloadToProtoUser(payload map[string]any) (*eventsv1.User, error) {
+	bytes, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal payload map: %w", err)
+	}
+
+	var p dto.UserCreatedPayload
+	if err := json.Unmarshal(bytes, &p); err != nil {
+		return nil, fmt.Errorf("unmarshal payload: %w", err)
+	}
+
+	if p.ID == "" {
 		return nil, fmt.Errorf("payload missing required field: id")
 	}
 
-	email, _ := payload["email"].(string)
-
-	var roles []string
-	if rawRoles, ok := payload["roles"].([]interface{}); ok {
-		for _, r := range rawRoles {
-			if s, ok := r.(string); ok {
-				roles = append(roles, s)
-			}
-		}
-	}
-
-	var createdAt *timestamppb.Timestamp
-	if rawTime, ok := payload["created_at"].(string); ok {
-		t, err := time.Parse(time.RFC3339, rawTime)
-		if err == nil {
-			createdAt = timestamppb.New(t)
-		}
-	}
-
 	return &eventsv1.User{
-		Id:        id,
-		Email:     email,
-		Roles:     roles,
-		CreatedAt: createdAt,
+		Id:        p.ID,
+		Email:     p.Email,
+		Roles:     p.Roles,
+		CreatedAt: timestamppb.New(p.CreatedAt),
 	}, nil
 }

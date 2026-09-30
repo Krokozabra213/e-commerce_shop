@@ -30,3 +30,5 @@ kafkaConsumer:
   topic: "user.created"
   dlqTopic: "user.created.dlq"
 
+schema_registry:
+  url: "http://schema-registry:8081"

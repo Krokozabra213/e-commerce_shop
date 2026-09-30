@@ -1,0 +1,45 @@
+app:
+  name: "order-service"
+
+postgres:
+  host: "postgres"
+  port: "5432"
+  user: "postgres"
+  dbName: "postgres"
+  password: "postgres"
+
+http:
+  host: "0.0.0.0"
+  port: "8600"
+
+  allowedOrigins:
+    - "http://localhost:3000"
+
+slog:
+  level: "debug"
+  format: "text"
+  add_source: true
+
+
+inventoryCreatedConsumer:
+  brokers:
+    - "kafka:29092"
+  groupID: "order-service"
+  topic: "inventory.reserved"
+  dlqTopic: "inventory.reserved.dlq"
+
+inventoryCancelledConsumer:
+  brokers:
+    - "kafka:29092"
+  groupID: "order-service"
+  topic: "inventory.reservation-failed"
+  dlqTopic: "inventory.reservation-failed.dlq"
+
+kafka_producer:
+  brokers: ["kafka:29092"]
+
+schema_registry:
+  url: "http://schema-registry:8081"
+
+product_grpc_client:
+  addr: "product-service:44400"

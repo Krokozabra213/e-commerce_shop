@@ -10,6 +10,7 @@ import (
 	"github.com/Krokozabra213/e-commerce_shop/infra/apperror"
 	infrakafka "github.com/Krokozabra213/e-commerce_shop/infra/kafka"
 	"github.com/Krokozabra213/e-commerce_shop/services/inventory-service/internal/domain"
+	"github.com/Krokozabra213/e-commerce_shop/services/inventory-service/internal/dto"
 	"github.com/Krokozabra213/e-commerce_shop/services/inventory-service/internal/service"
 	"github.com/google/uuid"
 )
@@ -90,29 +91,30 @@ func (s *ReservationService) Reserve(ctx context.Context, input service.ReserveI
 }
 
 func (s *ReservationService) publishReserveSuccess(ctx context.Context, input service.ReserveInput) error {
-	items := make([]map[string]any, 0, len(input.Items))
-	for _, item := range input.Items {
-		items = append(items, map[string]any{
-			"product_id": item.ProductID,
-			"quantity":   item.Quantity,
-		})
+	payload := dto.InventoryReservedPayload{
+		OrderID: input.OrderID.String(),
 	}
 
-	payload := map[string]any{
-		"correlation_id": input.CorrelationID,
-		"order_id":       input.OrderID,
-		"items":          items,
-	}
-
-	return s.createOutboxEvent(ctx, input.CorrelationID, input.OrderID, infrakafka.TopicInventoryReserved, payload)
+	return s.createOutboxEvent(
+		ctx,
+		input.CorrelationID,
+		input.OrderID,
+		infrakafka.TopicInventoryReserved,
+		payload,
+	)
 }
 
 func (s *ReservationService) publishReserveFailed(ctx context.Context, input service.ReserveInput, reason string) error {
-	payload := map[string]any{
-		"correlation_id": input.CorrelationID,
-		"order_id":       input.OrderID,
-		"reason":         reason,
+	payload := dto.InventoryReservationFailedPayload{
+		OrderID: input.OrderID.String(),
+		Reason:  reason,
 	}
 
-	return s.createOutboxEvent(ctx, input.CorrelationID, input.OrderID, infrakafka.TopicInventoryReservFailed, payload)
+	return s.createOutboxEvent(
+		ctx,
+		input.CorrelationID,
+		input.OrderID,
+		infrakafka.TopicInventoryReservFailed,
+		payload,
+	)
 }

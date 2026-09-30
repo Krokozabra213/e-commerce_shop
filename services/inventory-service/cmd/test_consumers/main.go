@@ -7,17 +7,18 @@ import (
 	"time"
 
 	eventsv1 "github.com/Krokozabra213/e-commerce_shop/api/gen/go/proto/events/v1"
+	infrakafka "github.com/Krokozabra213/e-commerce_shop/infra/kafka"
 	"github.com/google/uuid"
 	"github.com/twmb/franz-go/pkg/kgo"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type TestProducer struct {
-	client *kgo.Client
+	client         *kgo.Client
+	schemaRegistry *infrakafka.SchemaRegistryClient // Добавили клиент Schema Registry
 }
 
-func NewTestProducer(brokers []string) (*TestProducer, error) {
+func NewTestProducer(brokers []string, registryURL string) (*TestProducer, error) {
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
 		kgo.RequiredAcks(kgo.AllISRAcks()),
@@ -34,16 +35,33 @@ func NewTestProducer(brokers []string) (*TestProducer, error) {
 		return nil, fmt.Errorf("ping kafka: %w", err)
 	}
 
-	return &TestProducer{client: client}, nil
+	// Инициализируем клиент Schema Registry для тестов
+	// Для тестов логгер можно передать nil или дефолтный
+	srClient, err := infrakafka.NewSchemaRegistryClient(registryURL)
+	if err != nil {
+		client.Close()
+		return nil, fmt.Errorf("init schema registry: %w", err)
+	}
+
+	return &TestProducer{
+		client:         client,
+		schemaRegistry: srClient,
+	}, nil
 }
 
 func (p *TestProducer) SendOrderCreated(ctx context.Context, topic string, event *eventsv1.OrderCreatedEvent) error {
-	data, err := proto.Marshal(event)
+	// 1. Регистрируем схему в Schema Registry
+	schema, err := p.schemaRegistry.RegisterOrGetSchema(topic, eventsv1.EventsProtoSchema)
 	if err != nil {
-		return fmt.Errorf("marshal event: %w", err)
+		return fmt.Errorf("register schema: %w", err)
 	}
 
-	// Безопасно извлекаем order_id и correlation_id
+	// 2. Сериализуем сообщение в Confluent Wire Format (с Magic Byte и Schema ID)
+	data, err := p.schemaRegistry.Serialize(ctx, schema.ID(), event)
+	if err != nil {
+		return fmt.Errorf("serialize with schema registry: %w", err)
+	}
+
 	var orderID string
 	var correlationID string
 
@@ -55,7 +73,6 @@ func (p *TestProducer) SendOrderCreated(ctx context.Context, topic string, event
 		correlationID = event.Metadata.CorrelationId
 	}
 
-	// Если нет order_id, используем случайный ключ
 	key := orderID
 	if key == "" {
 		key = "invalid-order-" + uuid.New().String()
@@ -65,7 +82,6 @@ func (p *TestProducer) SendOrderCreated(ctx context.Context, topic string, event
 		{Key: "event_type", Value: []byte("order.created")},
 	}
 
-	// Добавляем correlation_id только если он есть
 	if correlationID != "" {
 		headers = append(headers, kgo.RecordHeader{
 			Key:   "correlation_id",
@@ -84,12 +100,18 @@ func (p *TestProducer) SendOrderCreated(ctx context.Context, topic string, event
 }
 
 func (p *TestProducer) SendOrderCancelled(ctx context.Context, topic string, event *eventsv1.OrderCancelledEvent) error {
-	data, err := proto.Marshal(event)
+	// 1. Регистрируем схему в Schema Registry
+	schema, err := p.schemaRegistry.RegisterOrGetSchema(topic, eventsv1.EventsProtoSchema)
 	if err != nil {
-		return fmt.Errorf("marshal event: %w", err)
+		return fmt.Errorf("register schema: %w", err)
 	}
 
-	// Безопасно извлекаем order_id и correlation_id
+	// 2. Сериализуем сообщение
+	data, err := p.schemaRegistry.Serialize(ctx, schema.ID(), event)
+	if err != nil {
+		return fmt.Errorf("serialize with schema registry: %w", err)
+	}
+
 	var orderID string
 	var correlationID string
 
@@ -101,17 +123,15 @@ func (p *TestProducer) SendOrderCancelled(ctx context.Context, topic string, eve
 		correlationID = event.Metadata.CorrelationId
 	}
 
-	// Если нет order_id, используем случайный ключ
 	key := orderID
 	if key == "" {
 		key = "invalid-order-" + uuid.New().String()
 	}
 
 	headers := []kgo.RecordHeader{
-		{Key: "event_type", Value: []byte("order.cancelled")},
+		{Key: "event_type", Value: []byte("order.cancel-inventory")},
 	}
 
-	// Добавляем correlation_id только если он есть
 	if correlationID != "" {
 		headers = append(headers, kgo.RecordHeader{
 			Key:   "correlation_id",
@@ -130,6 +150,8 @@ func (p *TestProducer) SendOrderCancelled(ctx context.Context, topic string, eve
 }
 
 func (p *TestProducer) SendInvalidMessage(ctx context.Context, topic string, key string, value []byte) error {
+	// Этот метод отправляет СЫРЫЕ байты (без Schema Registry).
+	// Он идеально подходит для Теста 5, чтобы проверить, как консьюмер отвергает сообщения без Magic Byte.
 	record := &kgo.Record{
 		Topic: topic,
 		Key:   []byte(key),
@@ -145,8 +167,9 @@ func (p *TestProducer) Close() {
 
 func main() {
 	brokers := []string{"localhost:9092"}
+	schemaRegistryURL := "http://localhost:8081" // URL для локального Schema Registry
 
-	producer, err := NewTestProducer(brokers)
+	producer, err := NewTestProducer(brokers, schemaRegistryURL)
 	if err != nil {
 		log.Fatalf("Failed to create producer: %v", err)
 	}
@@ -154,7 +177,7 @@ func main() {
 
 	ctx := context.Background()
 
-	log.Println("=== Starting Kafka event producer tests ===")
+	log.Println("=== Starting Kafka event producer tests with Schema Registry ===")
 
 	// Тест 1: Отправка валидного order.created
 	log.Println("\n--- Test 1: Valid order.created event ---")
@@ -186,8 +209,8 @@ func main() {
 
 	time.Sleep(2 * time.Second)
 
-	// Тест 4: Отправка валидного order.cancelled
-	log.Println("\n--- Test 4: Valid order.cancelled event ---")
+	// Тест 4: Отправка валидного order.cancel-inventory
+	log.Println("\n--- Test 4: Valid order.cancel-inventory event ---")
 	orderID := uuid.New().String()
 	if err := sendValidOrderCancelled(ctx, producer, orderID); err != nil {
 		log.Printf("❌ Failed: %v", err)
@@ -277,8 +300,8 @@ func main() {
 
 	time.Sleep(2 * time.Second)
 
-	// Тест 13: order.cancelled с nil cancellation (должно попасть в DLQ)
-	log.Println("\n--- Test 13: order.cancelled with nil cancellation (should go to DLQ) ---")
+	// Тест 13: order.cancel-inventory с nil cancellation (должно попасть в DLQ)
+	log.Println("\n--- Test 13: order.cancel-inventory with nil cancellation (should go to DLQ) ---")
 	if err := sendOrderCancelledWithNilCancellation(ctx, producer); err != nil {
 		log.Printf("❌ Failed: %v", err)
 	} else {
@@ -287,8 +310,8 @@ func main() {
 
 	time.Sleep(2 * time.Second)
 
-	// Тест 14: order.cancelled с пустым order_id (должно попасть в DLQ)
-	log.Println("\n--- Test 14: order.cancelled with empty order_id (should go to DLQ) ---")
+	// Тест 14: order.cancel-inventory с пустым order_id (должно попасть в DLQ)
+	log.Println("\n--- Test 14: order.cancel-inventory with empty order_id (should go to DLQ) ---")
 	if err := sendOrderCancelledWithEmptyOrderID(ctx, producer); err != nil {
 		log.Printf("❌ Failed: %v", err)
 	} else {
@@ -394,14 +417,14 @@ func sendOrderCreatedWithManyItems(ctx context.Context, producer *TestProducer) 
 	return producer.SendOrderCreated(ctx, "order.created", event)
 }
 
-// Тест 4: Валидное событие order.cancelled
+// Тест 4: Валидное событие order.cancel-inventory
 func sendValidOrderCancelled(ctx context.Context, producer *TestProducer, orderID string) error {
 	correlationID := uuid.New()
 
 	event := &eventsv1.OrderCancelledEvent{
 		Metadata: &eventsv1.EventMetadata{
 			EventId:       uuid.New().String(),
-			EventType:     "order.cancelled",
+			EventType:     "order.cancel-inventory",
 			Timestamp:     timestamppb.Now(),
 			CorrelationId: correlationID.String(),
 		},
@@ -412,10 +435,10 @@ func sendValidOrderCancelled(ctx context.Context, producer *TestProducer, orderI
 		},
 	}
 
-	log.Printf("Sending order.cancelled: order_id=%s, reason=%s",
+	log.Printf("Sending order.cancel-inventory: order_id=%s, reason=%s",
 		orderID, event.Cancellation.Reason)
 
-	return producer.SendOrderCancelled(ctx, "order.cancelled", event)
+	return producer.SendOrderCancelled(ctx, "order.cancel-inventory", event)
 }
 
 // Тест 5: Невалидное protobuf сообщение
@@ -551,29 +574,29 @@ func sendOrderCreatedWithEmptyProductID(ctx context.Context, producer *TestProdu
 	return producer.SendOrderCreated(ctx, "order.created", event)
 }
 
-// Тест 13: order.cancelled с nil cancellation
+// Тест 13: order.cancel-inventory с nil cancellation
 func sendOrderCancelledWithNilCancellation(ctx context.Context, producer *TestProducer) error {
 	event := &eventsv1.OrderCancelledEvent{
 		Metadata: &eventsv1.EventMetadata{
 			EventId:       uuid.New().String(),
-			EventType:     "order.cancelled",
+			EventType:     "order.cancel-inventory",
 			Timestamp:     timestamppb.Now(),
 			CorrelationId: uuid.New().String(),
 		},
 		Cancellation: nil, // Nil cancellation
 	}
 
-	log.Println("Sending order.cancelled with nil cancellation")
+	log.Println("Sending order.cancel-inventory with nil cancellation")
 
-	return producer.SendOrderCancelled(ctx, "order.cancelled", event)
+	return producer.SendOrderCancelled(ctx, "order.cancel-inventory", event)
 }
 
-// Тест 14: order.cancelled с пустым order_id
+// Тест 14: order.cancel-inventory с пустым order_id
 func sendOrderCancelledWithEmptyOrderID(ctx context.Context, producer *TestProducer) error {
 	event := &eventsv1.OrderCancelledEvent{
 		Metadata: &eventsv1.EventMetadata{
 			EventId:       uuid.New().String(),
-			EventType:     "order.cancelled",
+			EventType:     "order.cancel-inventory",
 			Timestamp:     timestamppb.Now(),
 			CorrelationId: uuid.New().String(),
 		},
@@ -584,7 +607,7 @@ func sendOrderCancelledWithEmptyOrderID(ctx context.Context, producer *TestProdu
 		},
 	}
 
-	log.Println("Sending order.cancelled with empty order_id")
+	log.Println("Sending order.cancel-inventory with empty order_id")
 
-	return producer.SendOrderCancelled(ctx, "order.cancelled", event)
+	return producer.SendOrderCancelled(ctx, "order.cancel-inventory", event)
 }

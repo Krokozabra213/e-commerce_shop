@@ -11,16 +11,17 @@ import (
 )
 
 type Config struct {
-	App               infracfg.AppConfig           `yaml:"app" env-prefix:"APP_"`
-	Postgres          infracfg.PostgresConfig      `yaml:"postgres" env-prefix:"POSTGRES_"`
-	Redis             infracfg.RedisConfig         `yaml:"redis" env-prefix:"REDIS_"`
-	HTTP              infracfg.HTTPConfig          `yaml:"http" env-prefix:"HTTP_"`
-	Logger            infracfg.SlogConfig          `yaml:"slog" env-prefix:"SLOG_"`
-	EmailVerification EmailVerificationConfig      `yaml:"email_verification" env-prefix:"EMAIL_VERIFICATION"`
-	Oauth             OAuthConfig                  `yaml:"oauth" env-prefix:"OAUTH_"`
-	AuthJWT           AuthJWTConfig                `yaml:"auth_jwt" env-prefix:"AUTH_JWT_"`
-	UserCreatedOutbox infracfg.OutboxConfig        `yaml:"user_created_outbox" env-prefix:"USER_CREATED_OUTBOX_"`
-	KafkaProducer     infracfg.KafkaProducerConfig `yaml:"kafka_producer" env-prefix:"KAFKA_"`
+	App               infracfg.AppConfig            `yaml:"app" env-prefix:"APP_"`
+	Postgres          infracfg.PostgresConfig       `yaml:"postgres" env-prefix:"POSTGRES_"`
+	Redis             infracfg.RedisConfig          `yaml:"redis" env-prefix:"REDIS_"`
+	HTTP              infracfg.HTTPConfig           `yaml:"http" env-prefix:"HTTP_"`
+	Logger            infracfg.SlogConfig           `yaml:"slog" env-prefix:"SLOG_"`
+	EmailVerification EmailVerificationConfig       `yaml:"email_verification" env-prefix:"EMAIL_VERIFICATION"`
+	Oauth             OAuthConfig                   `yaml:"oauth" env-prefix:"OAUTH_"`
+	AuthJWT           AuthJWTConfig                 `yaml:"auth_jwt" env-prefix:"AUTH_JWT_"`
+	UserCreatedOutbox infracfg.OutboxConfig         `yaml:"user_created_outbox" env-prefix:"USER_CREATED_OUTBOX_"`
+	KafkaProducer     infracfg.KafkaProducerConfig  `yaml:"kafka_producer" env-prefix:"KAFKA_"`
+	SchemaRegistry    infracfg.SchemaRegistryConfig `yaml:"schema_registry" env-prefix:"SCHEMA_REGISTRY_"`
 }
 
 func Init() (*Config, error) {

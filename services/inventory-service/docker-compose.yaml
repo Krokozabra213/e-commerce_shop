@@ -17,6 +17,8 @@ services:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
+      schema-registry:
+        condition: service_healthy
     env_file:
       - .env
 
@@ -75,6 +77,27 @@ services:
       timeout: 5s
       retries: 10
 
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.5.0
+    hostname: schema-registry
+    container_name: schema-registry
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'kafka:29092'
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL: backward
+      SCHEMA_REGISTRY_LOG4J_ROOT_LOGLEVEL: INFO
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8081/subjects" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   kafka-init:
     image: confluentinc/cp-kafka:7.5.0
     container_name: kafka-init
@@ -85,8 +108,8 @@ services:
     command: [
       "kafka-topics --create --if-not-exists --topic order.created --bootstrap-server kafka:29092 --replication-factor 1 --partitions 3 && \
          kafka-topics --create --if-not-exists --topic order.created.dlq --bootstrap-server kafka:29092 --replication-factor 1 --partitions 3 && \
-         kafka-topics --create --if-not-exists --topic order.cancelled --bootstrap-server kafka:29092 --replication-factor 1 --partitions 3 && \
-         kafka-topics --create --if-not-exists --topic order.cancelled.dlq --bootstrap-server kafka:29092 --replication-factor 1 --partitions 3 && \
+         kafka-topics --create --if-not-exists --topic order.cancel-inventory --bootstrap-server kafka:29092 --replication-factor 1 --partitions 3 && \
+         kafka-topics --create --if-not-exists --topic order.cancel-inventory.dlq --bootstrap-server kafka:29092 --replication-factor 1 --partitions 3 && \
          kafka-topics --create --if-not-exists --topic inventory.reserved --bootstrap-server kafka:29092 --replication-factor 1 --partitions 3 && \
          kafka-topics --create --if-not-exists --topic inventory.reservation-failed --bootstrap-server kafka:29092 --replication-factor 1 --partitions 3"
     ]
@@ -100,8 +123,11 @@ services:
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
     depends_on:
       kafka:
+        condition: service_healthy
+      schema-registry:
         condition: service_healthy
 
 

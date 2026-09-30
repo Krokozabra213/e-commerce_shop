@@ -14,4 +14,6 @@ const (
 
 	HeaderAuthorization = "Authorization"
 	AuthSchemeBearer    = "Bearer"
+
+	HeaderIdempotencyKey = "Idempotency-Key"
 )

@@ -17,6 +17,8 @@ import (
 	productWriteRepo "github.com/Krokozabra213/e-commerce_shop/services/product-service/internal/repository/mongo/product/write"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -618,5 +620,136 @@ func TestProductWriteRepo_TogglePublish(t *testing.T) {
 		_, err = writeRepo.TogglePublish(ctx, product.ID)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, domain.ErrNotFound)
+	})
+}
+
+func TestProductWriteRepo_GetPricesByIDs(t *testing.T) {
+	ctx := context.Background()
+	db := getTestDatabase(t)
+	writeRepo := productWriteRepo.NewProductWriteRepo(db)
+
+	t.Run("success - returns prices for multiple products", func(t *testing.T) {
+		defer testutils.TruncateCollections(t, db, "products")
+
+		p1 := createTestProduct(t, ctx, writeRepo, func(p *domain.Product) {
+			p.Price = 15000
+		})
+		p2 := createTestProduct(t, ctx, writeRepo, func(p *domain.Product) {
+			p.Price = 25000
+		})
+		p3 := createTestProduct(t, ctx, writeRepo, func(p *domain.Product) {
+			p.Price = 99999
+		})
+
+		prices, err := writeRepo.GetPricesByIDs(ctx, []string{p1.ID, p2.ID, p3.ID})
+		require.NoError(t, err)
+		require.Len(t, prices, 3)
+
+		priceMap := make(map[string]int64, len(prices))
+		for _, pp := range prices {
+			priceMap[pp.ProductID] = pp.Price
+		}
+
+		assert.Equal(t, int64(15000), priceMap[p1.ID])
+		assert.Equal(t, int64(25000), priceMap[p2.ID])
+		assert.Equal(t, int64(99999), priceMap[p3.ID])
+	})
+
+	t.Run("success - returns empty slice for empty input", func(t *testing.T) {
+		defer testutils.TruncateCollections(t, db, "products")
+
+		prices, err := writeRepo.GetPricesByIDs(ctx, []string{})
+		require.NoError(t, err)
+		assert.Nil(t, prices)
+	})
+
+	t.Run("success - returns empty slice for nil input", func(t *testing.T) {
+		defer testutils.TruncateCollections(t, db, "products")
+
+		prices, err := writeRepo.GetPricesByIDs(ctx, nil)
+		require.NoError(t, err)
+		assert.Nil(t, prices)
+	})
+
+	t.Run("success - skips non-existent IDs", func(t *testing.T) {
+		defer testutils.TruncateCollections(t, db, "products")
+
+		p1 := createTestProduct(t, ctx, writeRepo, func(p *domain.Product) {
+			p.Price = 42000
+		})
+
+		fakeID1 := primitive.NewObjectID().Hex()
+		fakeID2 := primitive.NewObjectID().Hex()
+
+		prices, err := writeRepo.GetPricesByIDs(ctx, []string{p1.ID, fakeID1, fakeID2})
+		require.NoError(t, err)
+		require.Len(t, prices, 1)
+		assert.Equal(t, p1.ID, prices[0].ProductID)
+		assert.Equal(t, int64(42000), prices[0].Price)
+	})
+
+	t.Run("success - skips deleted products", func(t *testing.T) {
+		defer testutils.TruncateCollections(t, db, "products")
+
+		p1 := createTestProduct(t, ctx, writeRepo, func(p *domain.Product) {
+			p.Price = 10000
+		})
+		p2 := createTestProduct(t, ctx, writeRepo, func(p *domain.Product) {
+			p.Price = 20000
+		})
+
+		oid, _ := primitive.ObjectIDFromHex(p2.ID)
+		_, err := db.Collection("products").UpdateOne(ctx,
+			bson.M{"_id": oid},
+			bson.M{"$set": bson.M{"deletedAt": time.Now().UTC()}},
+		)
+		require.NoError(t, err)
+
+		prices, err := writeRepo.GetPricesByIDs(ctx, []string{p1.ID, p2.ID})
+		require.NoError(t, err)
+		require.Len(t, prices, 1)
+		assert.Equal(t, p1.ID, prices[0].ProductID)
+		assert.Equal(t, int64(10000), prices[0].Price)
+	})
+
+	t.Run("success - returns empty for all non-existent IDs", func(t *testing.T) {
+		defer testutils.TruncateCollections(t, db, "products")
+
+		fakeIDs := []string{
+			primitive.NewObjectID().Hex(),
+			primitive.NewObjectID().Hex(),
+		}
+
+		prices, err := writeRepo.GetPricesByIDs(ctx, fakeIDs)
+		require.NoError(t, err)
+		assert.Empty(t, prices)
+	})
+
+	t.Run("success - skips invalid hex IDs", func(t *testing.T) {
+		defer testutils.TruncateCollections(t, db, "products")
+
+		p1 := createTestProduct(t, ctx, writeRepo, func(p *domain.Product) {
+			p.Price = 77000
+		})
+
+		prices, err := writeRepo.GetPricesByIDs(ctx, []string{p1.ID, "not-a-valid-hex", "also-bad"})
+		require.NoError(t, err)
+		require.Len(t, prices, 1)
+		assert.Equal(t, p1.ID, prices[0].ProductID)
+		assert.Equal(t, int64(77000), prices[0].Price)
+	})
+
+	t.Run("success - handles single product", func(t *testing.T) {
+		defer testutils.TruncateCollections(t, db, "products")
+
+		p1 := createTestProduct(t, ctx, writeRepo, func(p *domain.Product) {
+			p.Price = 12345
+		})
+
+		prices, err := writeRepo.GetPricesByIDs(ctx, []string{p1.ID})
+		require.NoError(t, err)
+		require.Len(t, prices, 1)
+		assert.Equal(t, p1.ID, prices[0].ProductID)
+		assert.Equal(t, int64(12345), prices[0].Price)
 	})
 }

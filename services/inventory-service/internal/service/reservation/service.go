@@ -66,7 +66,7 @@ func (s *ReservationService) createOutboxEvent(
 	correlationID uuid.UUID,
 	aggregateID uuid.UUID,
 	eventType string,
-	payload map[string]any,
+	payload any,
 ) error {
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {

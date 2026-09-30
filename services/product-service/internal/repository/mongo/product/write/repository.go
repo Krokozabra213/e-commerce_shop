@@ -160,3 +160,58 @@ func (r *ProductWriteRepo) TogglePublish(ctx context.Context, id string) (*domai
 
 	return doc.ToDomain(), nil
 }
+
+func (r *ProductWriteRepo) GetPricesByIDs(ctx context.Context, ids []string) ([]domain.ProductPrice, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	objectIDs := make([]primitive.ObjectID, 0, len(ids))
+	for _, id := range ids {
+		oid, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			continue
+		}
+		objectIDs = append(objectIDs, oid)
+	}
+
+	if len(objectIDs) == 0 {
+		return nil, nil
+	}
+
+	filter := bson.M{
+		"_id":       bson.M{"$in": objectIDs},
+		"deletedAt": nil,
+	}
+
+	opts := options.Find().SetProjection(bson.M{
+		"_id":   1,
+		"price": 1,
+	})
+
+	cursor, err := r.collection.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, fmt.Errorf("ProductWriteRepo.GetPricesByIDs Find: %w", err)
+	}
+	defer func() {
+		_ = cursor.Close(ctx)
+	}()
+
+	var results []domain.ProductPrice
+	for cursor.Next(ctx) {
+		var doc mongodto.ProductPrice
+		if err := cursor.Decode(&doc); err != nil {
+			return nil, fmt.Errorf("ProductWriteRepo.GetPricesByIDs Decode: %w", err)
+		}
+		results = append(results, domain.ProductPrice{
+			ProductID: doc.ID.Hex(),
+			Price:     doc.Price,
+		})
+	}
+
+	if err := cursor.Err(); err != nil {
+		return nil, fmt.Errorf("ProductWriteRepo.GetPricesByIDs cursor: %w", err)
+	}
+
+	return results, nil
+}

@@ -16,6 +16,7 @@ import (
 	inframiddleware "github.com/Krokozabra213/e-commerce_shop/infra/middleware"
 	inframongo "github.com/Krokozabra213/e-commerce_shop/infra/mongo"
 	"github.com/Krokozabra213/e-commerce_shop/services/product-service/internal/config"
+	grpchandler "github.com/Krokozabra213/e-commerce_shop/services/product-service/internal/handler/grpc"
 	httphandler "github.com/Krokozabra213/e-commerce_shop/services/product-service/internal/handler/http"
 	"github.com/Krokozabra213/e-commerce_shop/services/product-service/internal/health"
 	productMongo "github.com/Krokozabra213/e-commerce_shop/services/product-service/internal/infra/mongodb"
@@ -23,6 +24,7 @@ import (
 	categoryWriteRepo "github.com/Krokozabra213/e-commerce_shop/services/product-service/internal/repository/mongo/category/write"
 	productReadRepo "github.com/Krokozabra213/e-commerce_shop/services/product-service/internal/repository/mongo/product/read"
 	productWriteRepo "github.com/Krokozabra213/e-commerce_shop/services/product-service/internal/repository/mongo/product/write"
+	grpcserver "github.com/Krokozabra213/e-commerce_shop/services/product-service/internal/server/grpc"
 	categoryService "github.com/Krokozabra213/e-commerce_shop/services/product-service/internal/service/category"
 	productService "github.com/Krokozabra213/e-commerce_shop/services/product-service/internal/service/product"
 	swaggo "github.com/gofiber/contrib/v3/swaggo"
@@ -90,9 +92,19 @@ func run() error {
 	healthHandler := health.NewHealthHandler(mongoClient)
 	healthHandler.RegisterRoutes(server.App)
 
-	errCh := make(chan error, 1)
+	grpcHandler := grpchandler.NewProductHandler(productSvc)
+	grpcServer := grpcserver.New(&cfg.GRPC, log, grpcHandler)
+
+	errCh := make(chan error, 2)
 	go func() {
-		log.Info("server started", "address", cfg.HTTP.HTTPAddress())
+		log.Info("grpc server started", "address", cfg.GRPC.GRPCAddress())
+		if err := grpcServer.RunGRPC(); err != nil {
+			errCh <- err
+		}
+	}()
+
+	go func() {
+		log.Info("http server started", "address", cfg.HTTP.HTTPAddress())
 		if err := server.Run(); !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}

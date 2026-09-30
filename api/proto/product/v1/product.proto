@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package product.v1;
+
+option go_package = "github.com/Krokozabra213/e-commerce_shop/api/gen/go/proto/product/v1;productv1";
+
+service ProductServiceAPI {
+  rpc GetPricesByProductIDs(GetPricesByProductIDsRequest) returns (GetPricesByProductIDsResponse);
+
+}
+
+message GetPricesByProductIDsRequest {
+  repeated string product_ids = 1;
+}
+
+message GetPricesByProductIDsResponse {
+  map<string, int64> prices = 1;
+}

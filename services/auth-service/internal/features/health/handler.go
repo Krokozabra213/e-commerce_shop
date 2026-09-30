@@ -14,16 +14,18 @@ type Pinger interface {
 }
 
 type HealthHandler struct {
-	pgPool Pinger
-	broker Pinger
-	redis  redis.UniversalClient
+	pgPool               Pinger
+	broker               Pinger
+	redis                redis.UniversalClient
+	schemaRegisterClient Pinger
 }
 
-func NewHealthHandler(pgPool Pinger, broker Pinger, redis redis.UniversalClient) *HealthHandler {
+func NewHealthHandler(pgPool, broker, schemaRegisterClient Pinger, redis redis.UniversalClient) *HealthHandler {
 	return &HealthHandler{
-		pgPool: pgPool,
-		redis:  redis,
-		broker: broker,
+		pgPool:               pgPool,
+		redis:                redis,
+		broker:               broker,
+		schemaRegisterClient: schemaRegisterClient,
 	}
 }
 
@@ -54,6 +56,12 @@ func (h *HealthHandler) HealthCheck(c fiber.Ctx) error {
 	if err := h.broker.Ping(ctx); err != nil {
 		status["status"] = "error"
 		status["broker"] = "down"
+		statusCode = http.StatusInternalServerError
+	}
+
+	if err := h.schemaRegisterClient.Ping(ctx); err != nil {
+		status["status"] = "error"
+		status["schemaRegisterClient"] = "down"
 		statusCode = http.StatusInternalServerError
 	}
 

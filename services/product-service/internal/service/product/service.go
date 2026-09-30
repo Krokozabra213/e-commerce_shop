@@ -14,6 +14,7 @@ type ProductWriteRepository interface {
 	Update(ctx context.Context, id string, input *domain.UpdateProductInput) (*domain.Product, error)
 	Delete(ctx context.Context, id string) error
 	TogglePublish(ctx context.Context, id string) (*domain.Product, error)
+	GetPricesByIDs(ctx context.Context, ids []string) ([]domain.ProductPrice, error)
 }
 
 type ProductReadRepository interface {
@@ -138,4 +139,13 @@ func (s *Service) TogglePublish(ctx context.Context, id string) (*domain.Product
 		return nil, apperror.NewInternal("writeRepo.TogglePublish", err, "failed to toggle publish", nil)
 	}
 	return product, nil
+}
+
+func (s *Service) GetPricesByIDs(ctx context.Context, ids []string) ([]domain.ProductPrice, error) {
+	prices, err := s.writeRepo.GetPricesByIDs(ctx, ids)
+	if err != nil {
+		return nil, apperror.NewInternal("writeRepo.GetPricesByIDs", err, "Что-то пошло не так", nil)
+	}
+
+	return prices, nil
 }

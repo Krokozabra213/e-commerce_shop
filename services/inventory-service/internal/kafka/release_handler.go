@@ -9,7 +9,6 @@ import (
 	eventsv1 "github.com/Krokozabra213/e-commerce_shop/api/gen/go/proto/events/v1"
 	"github.com/Krokozabra213/e-commerce_shop/services/inventory-service/internal/service"
 	"github.com/twmb/franz-go/pkg/kgo"
-	"google.golang.org/protobuf/proto"
 )
 
 type ReservationReleaser interface {
@@ -17,21 +16,28 @@ type ReservationReleaser interface {
 }
 
 type OrderCancelledHandler struct {
-	service ReservationReleaser
-	logger  *slog.Logger
+	service        ReservationReleaser
+	schemaRegistry SchemaDeserializer
+	logger         *slog.Logger
 }
 
-func NewOrderCancelledHandler(service ReservationReleaser, logger *slog.Logger) *OrderCancelledHandler {
+func NewOrderCancelledHandler(
+	service ReservationReleaser,
+	logger *slog.Logger,
+	schemaRegistry SchemaDeserializer,
+) *OrderCancelledHandler {
 	return &OrderCancelledHandler{
-		service: service,
-		logger:  logger,
+		service:        service,
+		logger:         logger,
+		schemaRegistry: schemaRegistry,
 	}
 }
 
 func (h *OrderCancelledHandler) Handle(ctx context.Context, record *kgo.Record) error {
 	var event eventsv1.OrderCancelledEvent
-	if err := proto.Unmarshal(record.Value, &event); err != nil {
-		return errors.New("битое сообщение: failed to unmarshal proto")
+
+	if err := h.schemaRegistry.Deserialize(ctx, record.Value, &event); err != nil {
+		return fmt.Errorf("битое сообщение: failed to deserialize with schema registry: %w", err)
 	}
 
 	if event.Metadata == nil {

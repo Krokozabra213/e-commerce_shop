@@ -23,22 +23,29 @@ type UserCreator interface {
 	) error
 }
 
-type UserCreatedHandler struct {
-	service UserCreator
-	logger  *slog.Logger
+type SchemaDeserializer interface {
+	Deserialize(ctx context.Context, payload []byte, dest proto.Message) error
 }
 
-func NewUserCreatedHandler(service UserCreator, logger *slog.Logger) *UserCreatedHandler {
+type UserCreatedHandler struct {
+	service        UserCreator
+	schemaRegistry SchemaDeserializer
+	logger         *slog.Logger
+}
+
+func NewUserCreatedHandler(service UserCreator, schemaRegistry SchemaDeserializer, logger *slog.Logger) *UserCreatedHandler {
 	return &UserCreatedHandler{
-		service: service,
-		logger:  logger,
+		service:        service,
+		logger:         logger,
+		schemaRegistry: schemaRegistry,
 	}
 }
 
 func (h *UserCreatedHandler) Handle(ctx context.Context, record *kgo.Record) error {
 	var event eventsv1.UserCreated
-	if err := proto.Unmarshal(record.Value, &event); err != nil {
-		return errors.New("битое сообщение")
+
+	if err := h.schemaRegistry.Deserialize(ctx, record.Value, &event); err != nil {
+		return fmt.Errorf("битое сообщение: failed to deserialize with schema registry: %w", err)
 	}
 
 	if event.User == nil {

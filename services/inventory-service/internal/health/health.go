@@ -18,6 +18,7 @@ type HealthHandler struct {
 	orderCreatedDLQ        Pinger
 	orderCreatedConsumer   Pinger
 	orderCancelledConsumer Pinger
+	schemaRegistryClient   Pinger
 }
 
 func NewHealthHandler(
@@ -26,8 +27,10 @@ func NewHealthHandler(
 	orderCreatedDLQ Pinger,
 	orderCreatedConsumer Pinger,
 	orderCancelledConsumer Pinger,
+	schemaRegistryClient Pinger,
 ) *HealthHandler {
 	return &HealthHandler{
+		schemaRegistryClient:   schemaRegistryClient,
 		pgPool:                 pgPool,
 		orderCancelledDLQ:      orderCancelledDLQ,
 		orderCreatedDLQ:        orderCreatedDLQ,
@@ -75,6 +78,12 @@ func (h *HealthHandler) HealthCheck(c fiber.Ctx) error {
 	if err := h.orderCancelledConsumer.Ping(ctx); err != nil {
 		status["status"] = "error"
 		status["orderCancelledConsumer"] = "down"
+		statusCode = http.StatusInternalServerError
+	}
+
+	if err := h.schemaRegistryClient.Ping(ctx); err != nil {
+		status["status"] = "error"
+		status["schemaRegistryClient"] = "down"
 		statusCode = http.StatusInternalServerError
 	}
 

@@ -16,22 +16,33 @@ type ReservationReserver interface {
 	Reserve(ctx context.Context, input service.ReserveInput) error
 }
 
-type OrderCreatedHandler struct {
-	service ReservationReserver
-	logger  *slog.Logger
+type SchemaDeserializer interface {
+	Deserialize(ctx context.Context, payload []byte, dest proto.Message) error
 }
 
-func NewOrderCreatedHandler(service ReservationReserver, logger *slog.Logger) *OrderCreatedHandler {
+type OrderCreatedHandler struct {
+	service        ReservationReserver
+	schemaRegistry SchemaDeserializer
+	logger         *slog.Logger
+}
+
+func NewOrderCreatedHandler(
+	service ReservationReserver,
+	schemaRegistry SchemaDeserializer,
+	logger *slog.Logger,
+) *OrderCreatedHandler {
 	return &OrderCreatedHandler{
-		service: service,
-		logger:  logger,
+		service:        service,
+		schemaRegistry: schemaRegistry,
+		logger:         logger,
 	}
 }
 
 func (h *OrderCreatedHandler) Handle(ctx context.Context, record *kgo.Record) error {
 	var event eventsv1.OrderCreatedEvent
-	if err := proto.Unmarshal(record.Value, &event); err != nil {
-		return errors.New("битое сообщение: failed to unmarshal proto")
+
+	if err := h.schemaRegistry.Deserialize(ctx, record.Value, &event); err != nil {
+		return fmt.Errorf("битое сообщение: failed to deserialize with schema registry: %w", err)
 	}
 
 	if event.Metadata == nil {

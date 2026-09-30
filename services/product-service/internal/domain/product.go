@@ -53,3 +53,8 @@ type UpdateProductInput struct {
 	CategorySlug *string
 	Published    *bool
 }
+
+type ProductPrice struct {
+	ProductID string
+	Price     int64
+}

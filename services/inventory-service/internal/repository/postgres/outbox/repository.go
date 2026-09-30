@@ -125,6 +125,10 @@ func (r *PostgresOutboxRepository) MarkPublished(ctx context.Context, ids []uuid
 		return domain.NotFoundError
 	}
 
+	if tag.RowsAffected() != int64(len(ids)) {
+		return domain.NotFoundError
+	}
+
 	return nil
 }
 
@@ -183,54 +187,6 @@ func (r *PostgresOutboxRepository) FetchUnpublishedByEventType(
 
 	return events, nil
 }
-
-//func (r *PostgresOutboxRepository) FetchUnpublishedByEventType(
-//	ctx context.Context,
-//	eventType string,
-//	limit int,
-//) ([]*domain.OutboxEvent, error) {
-//	tx := tx_manager.ExtractTx(ctx)
-//	querier := tx_manager.GetQuerier(r.pool, tx)
-//
-//	query := `
-//		SELECT
-//			id, correlation_id, aggregate_type, aggregate_id,
-//			event_type, payload,
-//			created_at, published_at
-//		FROM outbox
-//		WHERE published_at IS NULL
-//		  AND event_type = @event_type
-//		ORDER BY created_at ASC
-//		LIMIT @limit
-//		FOR UPDATE SKIP LOCKED
-//	`
-//
-//	args := pgx.NamedArgs{
-//		"event_type": eventType,
-//		"limit":      limit,
-//	}
-//
-//	rows, err := querier.Query(ctx, query, args)
-//	if err != nil {
-//		return nil, fmt.Errorf("fetch unpublished outbox events: %w", err)
-//	}
-//	defer rows.Close()
-//
-//	events := make([]*domain.OutboxEvent, 0, limit)
-//	for rows.Next() {
-//		event, err := scanOutboxEvent(rows)
-//		if err != nil {
-//			return nil, fmt.Errorf("scan outbox event: %w", err)
-//		}
-//		events = append(events, event)
-//	}
-//
-//	if err := rows.Err(); err != nil {
-//		return nil, fmt.Errorf("iterate outbox events: %w", err)
-//	}
-//
-//	return events, nil
-//}
 
 func scanOutboxEvent(row pgx.Row) (*domain.OutboxEvent, error) {
 	var e domain.OutboxEvent

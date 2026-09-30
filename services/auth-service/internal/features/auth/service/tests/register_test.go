@@ -73,11 +73,12 @@ func TestService_Register(t *testing.T) {
 				require.NotNil(t, event.Payload)
 				assert.Equal(t, createdUser.ID.String(), event.Payload["id"])
 				assert.Equal(t, input.Email, event.Payload["email"])
-				assert.Equal(t, []string{"ROLE_USER"}, event.Payload["roles"])
+
+				assert.Equal(t, []any{"ROLE_USER"}, event.Payload["roles"])
 
 				createdAt, ok := event.Payload["created_at"].(string)
 				if assert.True(t, ok, "created_at must be a string") {
-					assert.Equal(t, createdUser.CreatedAt.Format(time.RFC3339), createdAt)
+					assert.Equal(t, createdUser.CreatedAt.Format(time.RFC3339Nano), createdAt)
 				}
 				return nil
 			})

@@ -35,8 +35,11 @@ orderCancelledConsumer:
   brokers:
     - "kafka:29092"
   groupID: "inventory-service"
-  topic: "order.cancelled"
-  dlqTopic: "order.cancelled.dlq"
+  topic: "order.cancel-inventory"
+  dlqTopic: "order.cancel-inventory.dlq"
 
 kafka_producer:
   brokers: ["kafka:29092"]
+
+schema_registry:
+  url: "http://schema-registry:8081"

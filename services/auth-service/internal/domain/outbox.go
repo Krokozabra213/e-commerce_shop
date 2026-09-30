@@ -11,7 +11,7 @@ type OutboxEvent struct {
 	AggregateType string
 	AggregateID   uuid.UUID
 	EventType     string
-	Payload       map[string]interface{}
+	Payload       map[string]any
 	CreatedAt     time.Time
 	PublishedAt   *time.Time
 }

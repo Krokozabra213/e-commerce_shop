@@ -11,16 +11,17 @@ import (
 )
 
 type Config struct {
-	App                         infracfg.AppConfig           `yaml:"app" env-prefix:"APP_"`
-	Postgres                    infracfg.PostgresConfig      `yaml:"postgres" env-prefix:"POSTGRES_"`
-	HTTP                        infracfg.HTTPConfig          `yaml:"http" env-prefix:"HTTP_"`
-	GRPC                        infracfg.GRPCConfig          `yaml:"grpc" env-prefix:"GRPC_"`
-	Logger                      infracfg.SlogConfig          `yaml:"slog" env-prefix:"SLOG_"`
-	OrderCreatedConsumer        infracfg.KafkaConsumerConfig `yaml:"orderCreatedConsumer" env-prefix:"ORDER_CREATED_CONSUMER"`
-	OrderCancelledConsumer      infracfg.KafkaConsumerConfig `yaml:"orderCancelledConsumer" env-prefix:"ORDER_CANCELLED_CONSUMER"`
-	InventoryReservedOutbox     infracfg.OutboxConfig        `yaml:"inventory_reserved_outbox" env-prefix:"INVENTORY_RESERVED_OUTBOX_"`
-	InventoryReservFailedOutbox infracfg.OutboxConfig        `yaml:"inventory_reserv_failed_outbox" env-prefix:"INVENTORY_RESERV_FAILED_OUTBOX_"`
-	KafkaProducer               infracfg.KafkaProducerConfig `yaml:"kafka_producer" env-prefix:"KAFKA_"`
+	App                         infracfg.AppConfig            `yaml:"app" env-prefix:"APP_"`
+	Postgres                    infracfg.PostgresConfig       `yaml:"postgres" env-prefix:"POSTGRES_"`
+	HTTP                        infracfg.HTTPConfig           `yaml:"http" env-prefix:"HTTP_"`
+	GRPC                        infracfg.GRPCConfig           `yaml:"grpc" env-prefix:"GRPC_"`
+	Logger                      infracfg.SlogConfig           `yaml:"slog" env-prefix:"SLOG_"`
+	OrderCreatedConsumer        infracfg.KafkaConsumerConfig  `yaml:"orderCreatedConsumer" env-prefix:"ORDER_CREATED_CONSUMER"`
+	OrderCancelledConsumer      infracfg.KafkaConsumerConfig  `yaml:"orderCancelledConsumer" env-prefix:"ORDER_CANCELLED_CONSUMER"`
+	InventoryReservedOutbox     infracfg.OutboxConfig         `yaml:"inventory_reserved_outbox" env-prefix:"INVENTORY_RESERVED_OUTBOX_"`
+	InventoryReservFailedOutbox infracfg.OutboxConfig         `yaml:"inventory_reserv_failed_outbox" env-prefix:"INVENTORY_RESERV_FAILED_OUTBOX_"`
+	KafkaProducer               infracfg.KafkaProducerConfig  `yaml:"kafka_producer" env-prefix:"KAFKA_"`
+	SchemaRegistry              infracfg.SchemaRegistryConfig `yaml:"schema_registry" env-prefix:"SCHEMA_REGISTRY_"`
 }
 
 func Init() (*Config, error) {

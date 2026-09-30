@@ -66,9 +66,15 @@ func run() error {
 	stockSvc := stockService.NewStockService(stockRepo, outboxRepo, txManager)
 	reservSvc := reservationService.NewReservationService(stockRepo, reservRepo, outboxRepo, advisoryLocker, txManager)
 
+	schemaRegistry, err := infrakafka.NewSchemaRegistryClient(cfg.SchemaRegistry.URL)
+	if err != nil {
+		return fmt.Errorf("create schema registry client: %w", err)
+	}
+	defer schemaRegistry.Close()
+
 	stockHandler := httphandler.NewStockHandler(stockSvc, log)
-	orderCreatedHandler := kafka.NewOrderCreatedHandler(reservSvc, log)
-	orderCancelledHandler := kafka.NewOrderCancelledHandler(reservSvc, log)
+	orderCreatedHandler := kafka.NewOrderCreatedHandler(reservSvc, schemaRegistry, log)
+	orderCancelledHandler := kafka.NewOrderCancelledHandler(reservSvc, log, schemaRegistry)
 
 	orderCancelledDLQ, err := infrakafka.NewDLQProducer(cfg.OrderCancelledConsumer.Brokers, cfg.OrderCancelledConsumer.DLQTopic)
 	if err != nil {
@@ -97,7 +103,7 @@ func run() error {
 	}
 	defer kafkaProducer.Close()
 
-	eventPublisher := kafka.NewEventPublisher(kafkaProducer, log)
+	eventPublisher := kafka.NewEventPublisher(kafkaProducer, schemaRegistry, log)
 
 	InvReservedoutboxSvc := outboxService.New(outboxRepo, eventPublisher, log, cfg.InventoryReservedOutbox)
 	InvReservFailedoutboxSvc := outboxService.New(outboxRepo, eventPublisher, log, cfg.InventoryReservFailedOutbox)
@@ -111,9 +117,6 @@ func run() error {
 	errorHandler := inframiddleware.NewErrorHandler(log)
 	server := httpx.NewFiberServer(cfg.HTTP, log, errorHandler)
 	stockHandler.SetupStockRoutes(server.App)
-
-	healthHandler := health.NewHealthHandler(pool, orderCancelledDLQ, orderCreatedDLQ, orderCreatedConsumer, orderCancelledConsumer)
-	healthHandler.RegisterRoutes(server.App)
 
 	grpcHandler := grpchandler.NewInventoryHandler(stockSvc)
 	grpcServer := grpcserver.New(&cfg.GRPC, log, grpcHandler)
@@ -143,10 +146,13 @@ func run() error {
 
 	go func() {
 		log.Info("kafka consumer started", "topic", cfg.OrderCancelledConsumer.Topic)
-		if err := orderCreatedConsumer.Run(ctx); err != nil {
+		if err := orderCancelledConsumer.Run(ctx); err != nil {
 			errCh <- fmt.Errorf("kafka consumer error: %w", err)
 		}
 	}()
+
+	healthHandler := health.NewHealthHandler(pool, orderCancelledDLQ, orderCreatedDLQ, orderCreatedConsumer, orderCancelledConsumer, schemaRegistry)
+	healthHandler.RegisterRoutes(server.App)
 
 	select {
 	case <-ctx.Done():
@@ -161,6 +167,11 @@ func run() error {
 	grpcServer.Stop()
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Error("http shutdown error", "error", err)
+	}
+
+	err = server.Shutdown(shutdownCtx)
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Error("server error", "error", err)
 	}
 
 	log.Info("application stopped")

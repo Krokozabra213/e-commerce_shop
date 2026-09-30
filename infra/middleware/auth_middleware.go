@@ -108,3 +108,13 @@ func hasMinRole(userRoles []infradomain.Role, minRole infradomain.Role) bool {
 	}
 	return false
 }
+
+func HasMinRole(userRoles []infradomain.Role, minRole infradomain.Role) bool {
+	minWeight := minRole.Weight()
+	for _, r := range userRoles {
+		if r.Weight() >= minWeight {
+			return true
+		}
+	}
+	return false
+}

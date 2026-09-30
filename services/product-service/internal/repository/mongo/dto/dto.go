@@ -53,3 +53,8 @@ func (d *ProductDocument) ToDomain() *domain.Product {
 		DeletedAt:    d.DeletedAt,
 	}
 }
+
+type ProductPrice struct {
+	ID    primitive.ObjectID `bson:"_id"`
+	Price int64              `bson:"price"`
+}

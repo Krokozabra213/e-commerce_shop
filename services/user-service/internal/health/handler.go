@@ -13,16 +13,18 @@ type Pinger interface {
 }
 
 type HealthHandler struct {
-	pgPool      Pinger
-	dlqProducer Pinger
-	consumer    Pinger
+	pgPool               Pinger
+	dlqProducer          Pinger
+	consumer             Pinger
+	schemaRegistryClient Pinger
 }
 
-func NewHealthHandler(pgPool Pinger, dlqProducer Pinger, consumer Pinger) *HealthHandler {
+func NewHealthHandler(pgPool, dlqProducer, consumer, schemaRegistryClient Pinger) *HealthHandler {
 	return &HealthHandler{
-		pgPool:      pgPool,
-		dlqProducer: dlqProducer,
-		consumer:    consumer,
+		pgPool:               pgPool,
+		dlqProducer:          dlqProducer,
+		consumer:             consumer,
+		schemaRegistryClient: schemaRegistryClient,
 	}
 }
 
@@ -53,6 +55,12 @@ func (h *HealthHandler) HealthCheck(c fiber.Ctx) error {
 	if err := h.consumer.Ping(ctx); err != nil {
 		status["status"] = "error"
 		status["consumer"] = "down"
+		statusCode = http.StatusInternalServerError
+	}
+
+	if err := h.schemaRegistryClient.Ping(ctx); err != nil {
+		status["status"] = "error"
+		status["schemaRegistryClient"] = "down"
 		statusCode = http.StatusInternalServerError
 	}
 

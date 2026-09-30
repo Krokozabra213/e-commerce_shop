@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -81,7 +82,13 @@ func run() error {
 	}
 	defer kafkaProducer.Close()
 
-	eventPublisher := kafka.NewEventPublisher(kafkaProducer, log)
+	schemaRegistry, err := infrakafka.NewSchemaRegistryClient(cfg.SchemaRegistry.URL)
+	if err != nil {
+		return fmt.Errorf("create schema registry client: %w", err)
+	}
+	defer schemaRegistry.Close()
+
+	eventPublisher := kafka.NewEventPublisher(kafkaProducer, schemaRegistry, log)
 
 	outboxRepository := outboxRepo.NewPostgresOutboxRepository(pool)
 	outboxService := outboxservice.New(outboxRepository, eventPublisher, log, cfg.UserCreatedOutbox)
@@ -95,7 +102,7 @@ func run() error {
 	authModule.HTTPv1()(server.App)
 	oauthModule.HTTPv1()(server.App)
 
-	healthHandler := health.NewHealthHandler(pool, kafkaProducer, redis)
+	healthHandler := health.NewHealthHandler(pool, kafkaProducer, schemaRegistry, redis)
 	healthHandler.RegisterRoutes(server.App)
 
 	errCh := make(chan error, 1)

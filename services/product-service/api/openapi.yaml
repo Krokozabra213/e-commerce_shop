@@ -12,15 +12,15 @@ info:
     ## Тестовые пользователи для Swagger UI
     
     ### Администратор
-    - X-User-Id: `507f1f77bcf86cd799439011`
+    - X-User-Id: `550e8400-e29b-41d4-a716-446655440000`
     - X-User-Roles: `ROLE_ADMIN`
     
     ### Менеджер
-    - X-User-Id: `507f1f77bcf86cd799439012`
+    - X-User-Id: `550e8400-e29b-41d4-a716-446655440000`
     - X-User-Roles: `ROLE_MANAGER`
     
     ### Обычный пользователь
-    - X-User-Id: `507f1f77bcf86cd799439013`
+    - X-User-Id: `550e8400-e29b-41d4-a716-446655440000`
     - X-User-Roles: `ROLE_USER`
     
     ## Формат цены
@@ -477,7 +477,6 @@ components:
         
         Примеры:
         - UUID: `550e8400-e29b-41d4-a716-446655440000`
-        - ObjectId: `507f1f77bcf86cd799439011`
 
     UserRolesHeader:
       type: apiKey

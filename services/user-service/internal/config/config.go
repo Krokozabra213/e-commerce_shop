@@ -11,11 +11,12 @@ import (
 )
 
 type Config struct {
-	App           infracfg.AppConfig           `yaml:"app" env-prefix:"APP_"`
-	Postgres      infracfg.PostgresConfig      `yaml:"postgres" env-prefix:"POSTGRES_"`
-	HTTP          infracfg.HTTPConfig          `yaml:"http" env-prefix:"HTTP_"`
-	Logger        infracfg.SlogConfig          `yaml:"slog" env-prefix:"SLOG_"`
-	KafkaConsumer infracfg.KafkaConsumerConfig `yaml:"kafkaConsumer" env-prefix:"KAFKA_CONSUMER"`
+	App            infracfg.AppConfig            `yaml:"app" env-prefix:"APP_"`
+	Postgres       infracfg.PostgresConfig       `yaml:"postgres" env-prefix:"POSTGRES_"`
+	HTTP           infracfg.HTTPConfig           `yaml:"http" env-prefix:"HTTP_"`
+	Logger         infracfg.SlogConfig           `yaml:"slog" env-prefix:"SLOG_"`
+	KafkaConsumer  infracfg.KafkaConsumerConfig  `yaml:"kafkaConsumer" env-prefix:"KAFKA_CONSUMER"`
+	SchemaRegistry infracfg.SchemaRegistryConfig `yaml:"schema_registry" env-prefix:"SCHEMA_REGISTRY_"`
 }
 
 func Init() (*Config, error) {

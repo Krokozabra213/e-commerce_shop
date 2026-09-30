@@ -14,6 +14,7 @@ type Config struct {
 	App    infracfg.AppConfig     `yaml:"app" env-prefix:"APP_"`
 	Mongo  infracfg.MongoDBConfig `yaml:"mongo" env-prefix:"MONGO_"`
 	HTTP   infracfg.HTTPConfig    `yaml:"http" env-prefix:"HTTP_"`
+	GRPC   infracfg.GRPCConfig    `yaml:"grpc" env-prefix:"GRPC_"`
 	Logger infracfg.SlogConfig    `yaml:"slog" env-prefix:"SLOG_"`
 }
 

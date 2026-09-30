@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/httpx"
+	infrakafka "github.com/Krokozabra213/e-commerce_shop/infra/kafka"
 	"github.com/Krokozabra213/e-commerce_shop/infra/logger"
 	inframiddleware "github.com/Krokozabra213/e-commerce_shop/infra/middleware"
 	"github.com/Krokozabra213/e-commerce_shop/infra/postgres"
@@ -52,7 +53,13 @@ func run() error {
 	service := service.NewService(userRepository, log, txManager)
 	handler := handler.NewHandler(service, log)
 
-	userCreatedHandler := kafka.NewUserCreatedHandler(service, log)
+	schemaRegistry, err := infrakafka.NewSchemaRegistryClient(cfg.SchemaRegistry.URL)
+	if err != nil {
+		return fmt.Errorf("create schema registry client: %w", err)
+	}
+	defer schemaRegistry.Close()
+
+	userCreatedHandler := kafka.NewUserCreatedHandler(service, schemaRegistry, log)
 	dlqProducer, err := kafka.NewDLQProducer(cfg.KafkaConsumer.Brokers, cfg.KafkaConsumer.DLQTopic)
 	if err != nil {
 		return err
@@ -70,7 +77,7 @@ func run() error {
 
 	handler.RegisterRoutes(server.App, userRepository)
 
-	healthHandler := health.NewHealthHandler(pool, dlqProducer, kafkaConsumer)
+	healthHandler := health.NewHealthHandler(pool, dlqProducer, kafkaConsumer, schemaRegistry)
 	healthHandler.RegisterRoutes(server.App)
 
 	errCh := make(chan error, 2)

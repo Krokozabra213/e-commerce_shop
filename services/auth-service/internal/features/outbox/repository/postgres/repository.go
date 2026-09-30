@@ -99,6 +99,7 @@ func (r *PostgresOutboxRepository) ClaimBatch(
 		"lease":      lease,
 		"worker_id":  workerID,
 		"batch_size": batchSize,
+		"event_type": eventType,
 	}
 
 	rows, err := querier.Query(ctx, query, args)
