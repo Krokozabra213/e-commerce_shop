@@ -124,8 +124,9 @@ func run() error {
 	go func() { orderCreatedWorker.Run(context.Background()) }()
 	go func() { orderCancellInventoryWorker.Run(context.Background()) }()
 
+	loggerRequestIDMiddleware := inframiddleware.RequestLogger(log)
 	errorHandler := inframiddleware.NewErrorHandler(log)
-	httpServer := httpx.NewFiberServer(cfg.HTTP, log, errorHandler)
+	httpServer := httpx.NewFiberServer(cfg.HTTP, log, errorHandler, loggerRequestIDMiddleware)
 	orderHandler.SetupOrderRoutes(httpServer.App)
 
 	errCh := make(chan error, 3)

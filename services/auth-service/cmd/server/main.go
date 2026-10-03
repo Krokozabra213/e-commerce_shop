@@ -55,6 +55,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		_ = redis.Close()
+	}()
 
 	privateKey, err := infrajwt.LoadRSAPrivateKey(cfg.AuthJWT.PrivateKeyPath)
 	if err != nil {
@@ -63,7 +66,6 @@ func run() error {
 
 	authModule := authfeature.New(&authfeature.Dependencies{
 		PGXPool:       pool,
-		Log:           log,
 		Config:        cfg,
 		RSAPrivateKey: privateKey,
 	})
@@ -71,7 +73,6 @@ func run() error {
 	oauthModule := oauthfeature.New(&oauthfeature.Dependencies{
 		PGXPool:       pool,
 		RedisClient:   redis,
-		Log:           log,
 		Config:        cfg,
 		RSAPrivateKey: privateKey,
 	})
@@ -95,9 +96,9 @@ func run() error {
 	batchWorker := worker.NewWorker(log, outboxService, cfg.UserCreatedOutbox.PollInterval, cfg.UserCreatedOutbox.ErrorBackoff, infrakafka.TopicUserCreated)
 	go func() { batchWorker.Run(context.Background()) }()
 
-	requestLogger := inframiddleware.RequestLogger(log)
+	loggerRequestIDMiddleware := inframiddleware.RequestLogger(log)
 	errorHandler := inframiddleware.NewErrorHandler(log)
-	server := httpx.NewFiberServer(cfg.HTTP, log, errorHandler, requestLogger)
+	server := httpx.NewFiberServer(cfg.HTTP, log, errorHandler, loggerRequestIDMiddleware)
 
 	authModule.HTTPv1()(server.App)
 	oauthModule.HTTPv1()(server.App)

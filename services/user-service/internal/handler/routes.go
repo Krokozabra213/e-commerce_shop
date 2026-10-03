@@ -19,6 +19,7 @@ func (h *Handler) RegisterRoutes(router fiber.Router, roles RoleChecker) {
 	authMW := middleware.NewAuthMiddleware()
 
 	api.Get("/me", authMW, h.GetMyProfile)
+	api.Get("/me/roles", authMW, h.GetMyRoles)
 	api.Patch("/me", authMW, h.UpdateMyProfile)
 
 	managerMinMW := middleware.NewRequireRolesMiddleware(roles, domain.RoleManager)

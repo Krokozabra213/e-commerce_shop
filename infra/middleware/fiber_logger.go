@@ -4,18 +4,21 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/Krokozabra213/e-commerce_shop/infra/httpx"
+	log "github.com/Krokozabra213/e-commerce_shop/infra/logger"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/requestid"
 	"github.com/google/uuid"
 )
 
-const (
-	LoggerKey = "logger"
-)
-
-func RequestLogger(logger *slog.Logger) func(c fiber.Ctx) error {
+func RequestLogger(logger *slog.Logger) fiber.Handler {
 	return func(c fiber.Ctx) error {
-		requestId := requestid.FromContext(c)
+		requestId := c.Get(httpx.HeaderRequestID)
+
+		if requestId == "" {
+			requestId = requestid.FromContext(c)
+		}
+
 		if requestId == "" {
 			requestId = uuid.New().String()
 		}
@@ -24,7 +27,10 @@ func RequestLogger(logger *slog.Logger) func(c fiber.Ctx) error {
 
 		loggerWithRequestId := logger.With("request_id", requestId)
 
-		c.Locals(LoggerKey, loggerWithRequestId)
+		ctx := c.Context()
+		ctx = log.WithLogger(ctx, loggerWithRequestId)
+		ctx = log.WithRequestID(ctx, requestId)
+		c.SetContext(ctx)
 
 		err := c.Next()
 
@@ -37,13 +43,4 @@ func RequestLogger(logger *slog.Logger) func(c fiber.Ctx) error {
 
 		return err
 	}
-}
-
-func GetLogger(c fiber.Ctx) *slog.Logger {
-	logger := fiber.Locals[*slog.Logger](c, LoggerKey)
-	if logger == nil {
-		return slog.Default()
-	}
-
-	return logger
 }

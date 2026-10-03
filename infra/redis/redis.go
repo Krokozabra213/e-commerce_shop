@@ -10,6 +10,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// NewClient создаёт Redis-клиент. Вызывающий код обязан вызвать Close()
+// при остановке приложения, чтобы освободить соединения.
 func NewClient(cfg infracfg.RedisConfig, log *slog.Logger) (redis.UniversalClient, error) {
 
 	rdb := redis.NewUniversalClient(&redis.UniversalOptions{

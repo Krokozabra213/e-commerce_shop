@@ -12,8 +12,9 @@ const (
 	HeaderRateLimitRetryAfter = "X-RateLimit-RetryAfter"
 	HeaderRateLimitReset      = "X-RateLimit-Reset"
 
-	HeaderAuthorization = "Authorization"
-	AuthSchemeBearer    = "Bearer"
+	AuthSchemeBearer = "Bearer"
 
 	HeaderIdempotencyKey = "Idempotency-Key"
+
+	CookieRefreshToken = "refresh_token"
 )

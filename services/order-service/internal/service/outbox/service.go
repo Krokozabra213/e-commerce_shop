@@ -43,11 +43,17 @@ func New(
 	logger *slog.Logger,
 	outboxConfig infracfg.OutboxConfig,
 ) *Service {
+	workerID := uuid.NewString()
+
+	logger = logger.With(
+		slog.String("component", "outbox_service"),
+		slog.String("worker_id", workerID),
+	)
 	return &Service{
 		repo:         repo,
 		publisher:    publisher,
 		logger:       logger,
-		workerID:     uuid.NewString(),
+		workerID:     workerID,
 		outboxConfig: outboxConfig,
 	}
 }

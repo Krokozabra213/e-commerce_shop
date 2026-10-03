@@ -24,9 +24,9 @@ func New(
 	log *slog.Logger,
 	inventoryHandler inventoryv1.InventoryServiceAPIServer,
 ) *GRPCApp {
-	errorInterceptor := inframiddleware.NewErrorInterceptor(log)
+	errorInterceptor := inframiddleware.NewErrorInterceptor()
 	panicInterceptor := inframiddleware.PanicRecoveryInterceptor(log)
-	loggingInterceptor := inframiddleware.LoggingInterceptor(log)
+	loggingInterceptor := inframiddleware.LoggingInterceptor()
 
 	opts := []grpc.ServerOption{
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),

@@ -2,7 +2,6 @@ package httphandler
 
 import (
 	"context"
-	"log/slog"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/apperror"
 	"github.com/Krokozabra213/e-commerce_shop/services/product-service/internal/domain"
@@ -20,13 +19,11 @@ type CategoryService interface {
 
 type CategoryHandler struct {
 	categoryService CategoryService
-	log             *slog.Logger
 }
 
-func NewCategoryHandler(categoryService CategoryService, log *slog.Logger) *CategoryHandler {
+func NewCategoryHandler(categoryService CategoryService) *CategoryHandler {
 	return &CategoryHandler{
 		categoryService: categoryService,
-		log:             log,
 	}
 }
 

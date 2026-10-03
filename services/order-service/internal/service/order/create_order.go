@@ -9,6 +9,7 @@ import (
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/apperror"
 	infrakafka "github.com/Krokozabra213/e-commerce_shop/infra/kafka"
+	"github.com/Krokozabra213/e-commerce_shop/infra/logger"
 	"github.com/Krokozabra213/e-commerce_shop/services/order-service/internal/domain"
 	svcDTO "github.com/Krokozabra213/e-commerce_shop/services/order-service/internal/service/dto"
 	"github.com/google/uuid"
@@ -35,7 +36,16 @@ func (s *OrderService) CreateOrder(ctx context.Context, input svcDTO.CreateOrder
 	}
 
 	now := time.Now()
-	correlationID := uuid.New()
+	correlationIDString := logger.RequestIDFromContext(ctx)
+	correlationID, err := uuid.Parse(correlationIDString)
+	if err != nil {
+		return nil, apperror.NewInternal(
+			"uuid.Parse",
+			err,
+			"Не удалось перевести requestID в uuid",
+			nil,
+		)
+	}
 
 	order := &domain.Order{
 		ID:             uuid.New(),

@@ -2,7 +2,6 @@ package authhandler
 
 import (
 	"context"
-	"log/slog"
 
 	authservice "github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/features/auth/service"
 )
@@ -19,12 +18,10 @@ type AuthService interface {
 
 type Handler struct {
 	authService AuthService
-	log         *slog.Logger
 }
 
-func New(authService AuthService, log *slog.Logger) *Handler {
+func New(authService AuthService) *Handler {
 	return &Handler{
 		authService: authService,
-		log:         log,
 	}
 }

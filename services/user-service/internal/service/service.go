@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"log/slog"
 
 	"github.com/Krokozabra213/e-commerce_shop/services/user-service/internal/domain"
 	"github.com/google/uuid"
@@ -26,17 +25,14 @@ type TxManager interface {
 type Service struct {
 	repo      UserRepository
 	txManager TxManager
-	logger    *slog.Logger
 }
 
 func NewService(
 	repo UserRepository,
-	logger *slog.Logger,
 	txManager TxManager,
 ) *Service {
 	return &Service{
 		repo:      repo,
-		logger:    logger,
 		txManager: txManager,
 	}
 }

@@ -5,11 +5,12 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/Krokozabra213/e-commerce_shop/infra/logger"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
 )
 
-func LoggingInterceptor(log *slog.Logger) grpc.UnaryServerInterceptor {
+func LoggingInterceptor() grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
 		req interface{},
@@ -17,6 +18,7 @@ func LoggingInterceptor(log *slog.Logger) grpc.UnaryServerInterceptor {
 		handler grpc.UnaryHandler,
 	) (interface{}, error) {
 		start := time.Now()
+		log := logger.FromContext(ctx)
 
 		log.InfoContext(ctx, "gRPC request started",
 			slog.String("method", info.FullMethod),

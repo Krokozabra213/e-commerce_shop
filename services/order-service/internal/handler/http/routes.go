@@ -13,8 +13,8 @@ func (h *OrderHandler) SetupOrderRoutes(api fiber.Router) {
 	authRolesMW := inframiddleware.NewAuthRolesMiddleware()
 	managerMinMW := inframiddleware.NewRequireRolesMiddleware(infradomain.RoleManager)
 
-	orders.Post("/", authUserMW, authRolesMW, h.Create)
-	orders.Get("/", authUserMW, authRolesMW, h.GetList)
+	orders.Post("/", authUserMW, h.Create)
+	orders.Get("/", authUserMW, h.GetList)
 	orders.Get("/:id", authUserMW, authRolesMW, h.GetByID)
 
 	orders.Post("/:id/ship", authUserMW, authRolesMW, managerMinMW, h.Ship)

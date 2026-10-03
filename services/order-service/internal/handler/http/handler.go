@@ -101,7 +101,7 @@ func (h *OrderHandler) GetByID(c fiber.Ctx) error {
 	}
 
 	resp := toOrderResponse(order)
-	return c.Status(fiber.StatusCreated).JSON(resp)
+	return c.Status(fiber.StatusOK).JSON(resp)
 }
 
 func (h *OrderHandler) GetList(c fiber.Ctx) error {

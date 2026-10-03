@@ -2,7 +2,6 @@ package httphandler
 
 import (
 	"context"
-	"log/slog"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/apperror"
 	"github.com/Krokozabra213/e-commerce_shop/services/inventory-service/internal/domain"
@@ -18,16 +17,13 @@ type StockService interface {
 
 type StockHandler struct {
 	stockService StockService
-	logger       *slog.Logger
 }
 
 func NewStockHandler(
 	stockService StockService,
-	logger *slog.Logger,
 ) *StockHandler {
 	return &StockHandler{
 		stockService: stockService,
-		logger:       logger,
 	}
 }
 

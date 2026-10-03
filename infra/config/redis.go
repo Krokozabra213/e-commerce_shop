@@ -6,7 +6,7 @@ import (
 )
 
 type RedisConfig struct {
-	Addr     string `yaml:"addr"     env:"ADDR"     env-default:"localhost:6379"`
+	Addr     string `yaml:"addr"     env:"ADDR"     env-default:"localhost:6379" env-required:"true"`
 	Password string `yaml:"password" env:"PASSWORD"`
 	Database int    `yaml:"database" env:"DB"       env-default:"0"`
 

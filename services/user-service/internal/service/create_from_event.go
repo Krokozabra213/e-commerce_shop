@@ -20,10 +20,6 @@ func (s *Service) CreateFromEvent(
 
 	_, err := s.repo.GetByID(ctx, userID)
 	if err == nil {
-		s.logger.Info("user already exists, skipping creation (idempotent)",
-			"user_id", userID,
-			"email", email,
-		)
 		return nil
 	}
 	if !errors.Is(err, domain.NotFoundError) {
@@ -39,9 +35,6 @@ func (s *Service) CreateFromEvent(
 	err = s.txManager.WithinTransaction(ctx, func(ctx context.Context) error {
 		if err := s.repo.Create(ctx, user); err != nil {
 			if errors.Is(err, domain.AlreadyExistsError) {
-				s.logger.Info("user created by another instance, skipping",
-					"user_id", userID,
-				)
 				return nil
 			}
 			return fmt.Errorf("create user: %w", err)
@@ -50,10 +43,6 @@ func (s *Service) CreateFromEvent(
 		for _, r := range roles {
 			role := domain.Role(r)
 			if !role.IsValid() {
-				s.logger.Warn("invalid role in event, skipping",
-					"user_id", userID,
-					"role", r,
-				)
 				continue
 			}
 
@@ -71,12 +60,6 @@ func (s *Service) CreateFromEvent(
 	if err != nil {
 		return err
 	}
-
-	s.logger.Info("user profile created from event",
-		"user_id", userID,
-		"email", email,
-		"roles", roles,
-	)
 
 	return nil
 }

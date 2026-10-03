@@ -1,61 +1,55 @@
 package middleware
 
 import (
-	"encoding/json"
 	"errors"
-	"log/slog"
-	"net/http"
 	"strings"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/httpx"
 	jwtmanager "github.com/Krokozabra213/e-commerce_shop/infra/jwt/manager"
-	"github.com/golang-jwt/jwt/v5"
+	jwtvalidator "github.com/Krokozabra213/e-commerce_shop/infra/jwt/validator"
+	"github.com/gofiber/fiber/v3"
+	"github.com/google/uuid"
 )
 
-type Validator interface {
+type JWTValidator interface {
 	ValidateAccess(tokenString string) (*jwtmanager.AccessClaims, error)
 }
 
-func Auth(
-	v Validator,
-	log *slog.Logger,
-) func(http.Handler) http.Handler {
+type ctxKey int
 
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+const (
+	ctxKeyUserID ctxKey = iota
+	ctxKeyUserRoles
+)
 
-			accessToken := extractBearerToken(r)
-			if accessToken == "" {
-				http.Error(w, "missing authorization header", http.StatusUnauthorized)
-				return
+func NewJWTMiddleware(validator JWTValidator) fiber.Handler {
+	return func(c fiber.Ctx) error {
+		accessToken := extractBearerToken(c)
+		if accessToken == "" {
+			return fiber.NewError(fiber.StatusUnauthorized, "missing access token")
+		}
+
+		claims, err := validator.ValidateAccess(accessToken)
+		if err != nil {
+			if errors.Is(err, jwtvalidator.ErrParseJWT) {
+				return fiber.NewError(fiber.StatusUnauthorized, "invalid or expired access token")
 			}
+			return fiber.NewError(fiber.StatusUnauthorized, "failed to validate access token")
+		}
 
-			claims, err := v.ValidateAccess(accessToken)
-			if err == nil {
-				ctx := ContextWithClaims(r.Context(), claims)
-				next.ServeHTTP(w, r.WithContext(ctx))
-				return
-			}
+		userID, err := claims.UserIDUUID()
+		if err != nil {
+			return fiber.NewError(fiber.StatusUnauthorized, "invalid user id in token")
+		}
 
-			if isExpiredError(err) {
-				log.Debug("auth: token expired",
-					slog.String("remote", r.RemoteAddr),
-				)
-				respondTokenExpired(w)
-				return
-			}
+		c.Locals(ctxKeyUserID, userID)
 
-			log.Warn("auth: invalid token",
-				slog.String("error", err.Error()),
-				slog.String("remote", r.RemoteAddr),
-			)
-			respondUnauthorized(w, "invalid_token", "Token validation failed")
-		})
+		return c.Next()
 	}
 }
 
-func extractBearerToken(r *http.Request) string {
-	header := r.Header.Get(httpx.HeaderAuthorization)
+func extractBearerToken(c fiber.Ctx) string {
+	header := c.Get(fiber.HeaderAuthorization)
 	if header == "" {
 		return ""
 	}
@@ -66,32 +60,10 @@ func extractBearerToken(r *http.Request) string {
 	return strings.TrimSpace(parts[1])
 }
 
-func isExpiredError(err error) bool {
-	return errors.Is(err, jwt.ErrTokenExpired)
-}
-
-type ErrorResponse struct {
-	Error       string `json:"error"`
-	Description string `json:"error_description,omitempty"`
-}
-
-func respondUnauthorized(w http.ResponseWriter, code, description string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusUnauthorized)
-
-	_ = json.NewEncoder(w).Encode(ErrorResponse{
-		Error:       code,
-		Description: description,
-	})
-}
-
-func respondTokenExpired(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Token-Status", "expired")
-	w.WriteHeader(http.StatusUnauthorized)
-
-	_ = json.NewEncoder(w).Encode(ErrorResponse{
-		Error:       "token_expired",
-		Description: "Access token has expired. Please refresh.",
-	})
+func UserIDFromCtx(c fiber.Ctx) (uuid.UUID, bool) {
+	v, ok := c.Locals(ctxKeyUserID).(uuid.UUID)
+	if !ok {
+		return uuid.Nil, false
+	}
+	return v, true
 }

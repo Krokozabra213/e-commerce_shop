@@ -24,13 +24,15 @@ func New(
 	log *slog.Logger,
 	productHandler productv1.ProductServiceAPIServer,
 ) *GRPCApp {
-	errorInterceptor := inframiddleware.NewErrorInterceptor(log)
+	errorInterceptor := inframiddleware.NewErrorInterceptor()
 	panicInterceptor := inframiddleware.PanicRecoveryInterceptor(log)
-	loggingInterceptor := inframiddleware.LoggingInterceptor(log)
+	loggingInterceptor := inframiddleware.LoggingInterceptor()
+	requestIDInterceptor := inframiddleware.UnaryServerRequestIDInterceptor(log)
 
 	opts := []grpc.ServerOption{
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.ChainUnaryInterceptor(
+			requestIDInterceptor,
 			panicInterceptor,
 			loggingInterceptor,
 			errorInterceptor.Unary(),

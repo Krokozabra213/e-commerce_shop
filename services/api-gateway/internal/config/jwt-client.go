@@ -10,8 +10,8 @@ import (
 type JWTClientConfig struct {
 	infracfg.JWTConfig `yaml:",inline"`
 
-	PublicKeyPath string `yaml:"publicKeyPath" env:"JWT_PUBLIC_KEY_PATH"`
-	JWKSEndpoint  string `yaml:"jwksEndpoint"  env:"JWT_JWKS_ENDPOINT"`
+	PublicKeyPath string `yaml:"publicKeyPath" env:"PUBLIC_KEY_PATH"`
+	JWKSEndpoint  string `yaml:"jwksEndpoint"  env:"JWKS_ENDPOINT"`
 
 	Leeway time.Duration `yaml:"leeway" env-default:"30s"`
 

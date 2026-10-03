@@ -6,14 +6,17 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/apperror"
+	"github.com/Krokozabra213/e-commerce_shop/infra/logger"
 	"github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/domain"
 	"github.com/google/uuid"
 )
 
 func (s *Service) SendVerificationEmail(ctx context.Context, input SendVerificationEmailInput) error {
+	log := logger.FromContext(ctx)
 
 	user, err := s.userRepo.GetByID(ctx, input.UserID)
 	if err != nil {
@@ -31,7 +34,11 @@ func (s *Service) SendVerificationEmail(ctx context.Context, input SendVerificat
 	if err != nil {
 		return apperror.NewInternal("generateVerificationToken", err, "Ошибка генерации токена", nil)
 	}
-	_ = verificationToken
+
+	log.DebugContext(ctx, "verification token generated",
+		slog.String("user_id", user.ID.String()),
+		slog.String("token", verificationToken),
+	)
 
 	now := time.Now()
 	emailToken := &domain.EmailVerificationToken{

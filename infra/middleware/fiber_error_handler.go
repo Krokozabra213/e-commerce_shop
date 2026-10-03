@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/apperror"
+	log "github.com/Krokozabra213/e-commerce_shop/infra/logger"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -17,6 +18,13 @@ func NewErrorHandler(logger *slog.Logger) *ErrorHandlerMiddleware {
 	return &ErrorHandlerMiddleware{
 		logger: logger,
 	}
+}
+
+func (h *ErrorHandlerMiddleware) loggerFor(ctx fiber.Ctx) *slog.Logger {
+	if l, ok := log.FromContextOK(ctx.Context()); ok {
+		return l
+	}
+	return h.logger
 }
 
 func (h *ErrorHandlerMiddleware) Handle(ctx fiber.Ctx, err error) error {
@@ -34,15 +42,17 @@ func (h *ErrorHandlerMiddleware) Handle(ctx fiber.Ctx, err error) error {
 }
 
 func (h *ErrorHandlerMiddleware) handleFiberError(ctx fiber.Ctx, err *fiber.Error) error {
+	logger := h.loggerFor(ctx)
+
 	if err.Code >= http.StatusInternalServerError {
-		h.logger.Error("fiber error",
+		logger.Error("fiber error",
 			slog.Int("status", err.Code),
 			slog.String("message", err.Message),
 			slog.String("path", ctx.Path()),
 			slog.String("method", ctx.Method()),
 		)
 	} else {
-		h.logger.Info("fiber error",
+		logger.Info("fiber error",
 			slog.Int("status", err.Code),
 			slog.String("message", err.Message),
 			slog.String("path", ctx.Path()),
@@ -56,6 +66,8 @@ func (h *ErrorHandlerMiddleware) handleFiberError(ctx fiber.Ctx, err *fiber.Erro
 }
 
 func (h *ErrorHandlerMiddleware) handleAppError(ctx fiber.Ctx, appErr *apperror.AppError) error {
+	logger := h.loggerFor(ctx)
+
 	statusCode := mapAppCodeToStatus(appErr.Code())
 	slogLevel := mapAppLevelToSlog(appErr.LogLevel())
 
@@ -78,7 +90,7 @@ func (h *ErrorHandlerMiddleware) handleAppError(ctx fiber.Ctx, appErr *apperror.
 		attrs = append(attrs, appErr.Attrs().ToAttrs()...)
 	}
 
-	h.logger.LogAttrs(ctx.Context(), slogLevel, appErr.Message(), attrs...)
+	logger.LogAttrs(ctx.Context(), slogLevel, appErr.Message(), attrs...)
 
 	if statusCode >= http.StatusInternalServerError {
 		return ctx.Status(statusCode).JSON(fiber.Map{
@@ -92,7 +104,9 @@ func (h *ErrorHandlerMiddleware) handleAppError(ctx fiber.Ctx, appErr *apperror.
 }
 
 func (h *ErrorHandlerMiddleware) handleUnknownError(ctx fiber.Ctx, err error) error {
-	h.logger.Error("unhandled error",
+	logger := h.loggerFor(ctx)
+
+	logger.Error("unhandled error",
 		slog.String("path", ctx.Path()),
 		slog.String("method", ctx.Method()),
 		slog.Any("error", err),

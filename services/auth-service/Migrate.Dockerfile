@@ -19,6 +19,7 @@ COPY --from=builder /go/bin/goose /usr/local/bin/goose
 RUN chmod +x /usr/local/bin/goose
 
 ENV GOOSE_DRIVER=postgres
+ENV GOOSE_DBSTRING=
 ENV GOOSE_MIGRATION_DIR=/app/migrations
 
 CMD ["goose", "up"]

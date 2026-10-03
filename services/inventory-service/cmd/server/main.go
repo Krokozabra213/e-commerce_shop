@@ -72,7 +72,7 @@ func run() error {
 	}
 	defer schemaRegistry.Close()
 
-	stockHandler := httphandler.NewStockHandler(stockSvc, log)
+	stockHandler := httphandler.NewStockHandler(stockSvc)
 	orderCreatedHandler := kafka.NewOrderCreatedHandler(reservSvc, schemaRegistry, log)
 	orderCancelledHandler := kafka.NewOrderCancelledHandler(reservSvc, log, schemaRegistry)
 
@@ -114,8 +114,9 @@ func run() error {
 	go func() { inventoryReservedWorker.Run(context.Background()) }()
 	go func() { InventoryReservFailedWorker.Run(context.Background()) }()
 
+	loggerRequestIDMiddleware := inframiddleware.RequestLogger(log)
 	errorHandler := inframiddleware.NewErrorHandler(log)
-	server := httpx.NewFiberServer(cfg.HTTP, log, errorHandler)
+	server := httpx.NewFiberServer(cfg.HTTP, log, errorHandler, loggerRequestIDMiddleware)
 	stockHandler.SetupStockRoutes(server.App)
 
 	grpcHandler := grpchandler.NewInventoryHandler(stockSvc)

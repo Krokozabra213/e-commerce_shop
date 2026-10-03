@@ -5,10 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
+	"strings"
 
+	"github.com/Krokozabra213/e-commerce_shop/infra/apperror"
 	infracfg "github.com/Krokozabra213/e-commerce_shop/infra/config"
 )
 
@@ -74,12 +75,38 @@ type AuthClient struct {
 }
 
 func NewAuthClient(cfg infracfg.HTTPClientConfig) *AuthClient {
+	addr := strings.TrimRight(cfg.Addr, "/")
+
+	if !strings.HasPrefix(addr, "http://") && !strings.HasPrefix(addr, "https://") {
+		addr = "http://" + addr
+	}
+
+	cfg.Addr = addr + "/"
 	return &AuthClient{
 		httpClient: &http.Client{
-			Timeout: cfg.Timeout,
+			Timeout:   cfg.Timeout,
+			Transport: WithRequestID(nil),
 		},
 		config: cfg,
 	}
+}
+
+func (c *AuthClient) HealthCheck(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.config.Addr+"healthz", nil)
+	if err != nil {
+		return fmt.Errorf("healthcheck: new request: %w", err)
+	}
+
+	return c.do("HealthCheck", req, nil, http.StatusOK)
+}
+
+func (c *AuthClient) ReadyCheck(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.config.Addr+"readyz", nil)
+	if err != nil {
+		return fmt.Errorf("readycheck: new request: %w", err)
+	}
+
+	return c.do("ReadyCheck", req, nil, http.StatusOK)
 }
 
 func (c *AuthClient) postJSON(ctx context.Context, op, path string, reqBody, dst any, expectedStatus int) error {
@@ -108,15 +135,14 @@ func (c *AuthClient) getJSON(ctx context.Context, op, path string, dst any) erro
 func (c *AuthClient) do(op string, req *http.Request, dst any, expectedStatus int) error {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("%s: do: %w", op, err)
+		return apperror.NewInternal(op, err, "Не удалось связаться с auth-service", nil)
 	}
 	defer func() {
 		_ = resp.Body.Close()
 	}()
 
 	if resp.StatusCode != expectedStatus {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("%s: auth-service returned %d: %s", op, resp.StatusCode, string(respBody))
+		return ParseDownstreamError("auth-service", resp)
 	}
 
 	if dst == nil || expectedStatus == http.StatusNoContent {
@@ -124,7 +150,7 @@ func (c *AuthClient) do(op string, req *http.Request, dst any, expectedStatus in
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
-		return fmt.Errorf("%s: decode: %w", op, err)
+		return apperror.NewInternal(op, err, "Не удалось декодировать ответ auth-service", nil)
 	}
 
 	return nil
@@ -135,7 +161,7 @@ func (c *AuthClient) Register(ctx context.Context, email, password string) (*Reg
 	err := c.postJSON(ctx, "Register", "api/v1/auth/register", RegisterRequest{
 		Email:    email,
 		Password: password,
-	}, &result, http.StatusCreated) // 201
+	}, &result, http.StatusCreated)
 	if err != nil {
 		return nil, err
 	}

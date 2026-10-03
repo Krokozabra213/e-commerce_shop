@@ -2,7 +2,6 @@ package oauthfeature
 
 import (
 	"crypto/rsa"
-	"log/slog"
 	"time"
 
 	jwtmanager "github.com/Krokozabra213/e-commerce_shop/infra/jwt/manager"
@@ -32,7 +31,6 @@ type Module struct {
 type Dependencies struct {
 	PGXPool       *pgxpool.Pool
 	RedisClient   redis.UniversalClient
-	Log           *slog.Logger
 	Config        *config.Config
 	RSAPrivateKey *rsa.PrivateKey
 }
@@ -81,7 +79,7 @@ func New(deps *Dependencies) *Module {
 		outboxRepository,
 	)
 
-	h := oauthhandler.New(svc, deps.Log)
+	h := oauthhandler.New(svc)
 
 	return &Module{
 		Service: svc,

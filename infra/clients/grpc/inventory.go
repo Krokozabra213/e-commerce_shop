@@ -5,8 +5,10 @@ import (
 	"fmt"
 
 	inventoryv1 "github.com/Krokozabra213/e-commerce_shop/api/gen/go/proto/inventory/v1"
+	inframiddleware "github.com/Krokozabra213/e-commerce_shop/infra/middleware"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
 type InventoryClient struct {
@@ -18,6 +20,7 @@ func NewInventoryClient(ctx context.Context, addr string) (*InventoryClient, err
 	conn, err := grpc.NewClient(
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithUnaryInterceptor(inframiddleware.UnaryClientRequestIDInterceptor),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("inventory client: grpc new client: %w", err)
@@ -33,12 +36,29 @@ func (c *InventoryClient) Close() error {
 	return c.conn.Close()
 }
 
+func (c *InventoryClient) HealthCheck(ctx context.Context) error {
+	client := grpc_health_v1.NewHealthClient(c.conn)
+
+	resp, err := client.Check(ctx, &grpc_health_v1.HealthCheckRequest{
+		Service: "",
+	})
+	if err != nil {
+		return fmt.Errorf("grpc health check failed: %w", err)
+	}
+
+	if resp.Status != grpc_health_v1.HealthCheckResponse_SERVING {
+		return fmt.Errorf("grpc service is not serving: %s", resp.Status.String())
+	}
+
+	return nil
+}
+
 func (c *InventoryClient) GetStock(ctx context.Context, productIDs []string) (map[string]int32, error) {
 	resp, err := c.api.GetStock(ctx, &inventoryv1.GetStockRequest{
 		ProductIds: productIDs,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("inventory client: get stock: %w", err)
+		return nil, ParseGRPCError("inventory-service", err)
 	}
 
 	return resp.Quantities, nil
@@ -49,7 +69,7 @@ func (c *InventoryClient) GetStockByProductID(ctx context.Context, productID str
 		ProductId: productID,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("inventory client: get stock by product id: %w", err)
+		return nil, ParseGRPCError("inventory-service", err)
 	}
 
 	return &StockInfo{

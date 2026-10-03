@@ -50,8 +50,8 @@ func run() error {
 
 	txManager := tx_manager.NewPgTxManager(pool)
 	userRepository := userRepo.NewPostgresUserRepository(pool)
-	service := service.NewService(userRepository, log, txManager)
-	handler := handler.NewHandler(service, log)
+	service := service.NewService(userRepository, txManager)
+	handler := handler.NewHandler(service)
 
 	schemaRegistry, err := infrakafka.NewSchemaRegistryClient(cfg.SchemaRegistry.URL)
 	if err != nil {
@@ -71,9 +71,9 @@ func run() error {
 	}
 	defer kafkaConsumer.Close()
 
+	loggerRequestIDMiddleware := inframiddleware.RequestLogger(log)
 	errorHandler := inframiddleware.NewErrorHandler(log)
-
-	server := httpx.NewFiberServer(cfg.HTTP, log, errorHandler)
+	server := httpx.NewFiberServer(cfg.HTTP, log, errorHandler, loggerRequestIDMiddleware)
 
 	handler.RegisterRoutes(server.App, userRepository)
 

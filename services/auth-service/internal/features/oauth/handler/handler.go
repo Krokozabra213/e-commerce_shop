@@ -2,7 +2,6 @@ package oauthhandler
 
 import (
 	"context"
-	"log/slog"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/apperror"
 	"github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/domain"
@@ -17,13 +16,11 @@ type OauthService interface {
 
 type Handler struct {
 	oauthService OauthService
-	log          *slog.Logger
 }
 
-func New(oauthService OauthService, log *slog.Logger) *Handler {
+func New(oauthService OauthService) *Handler {
 	return &Handler{
 		oauthService: oauthService,
-		log:          log,
 	}
 }
 

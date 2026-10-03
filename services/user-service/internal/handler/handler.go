@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"log/slog"
 	"strconv"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/apperror"
@@ -20,18 +19,33 @@ type UserService interface {
 	ListUsers(ctx context.Context, filter domain.ListUsersFilter) ([]*domain.User, int, error)
 	RemoveRole(ctx context.Context, userID uuid.UUID, role domain.Role) error
 	UpdateMyProfile(ctx context.Context, userID uuid.UUID, input domain.UpdateProfileInput) (*domain.User, error)
+	GetRoles(ctx context.Context, userID uuid.UUID) ([]domain.Role, error)
 }
 
 type Handler struct {
 	service UserService
-	logger  *slog.Logger
 }
 
-func NewHandler(service UserService, logger *slog.Logger) *Handler {
+func NewHandler(service UserService) *Handler {
 	return &Handler{
 		service: service,
-		logger:  logger,
 	}
+}
+
+func (h *Handler) GetMyRoles(c fiber.Ctx) error {
+	userID, ok := middleware.UserIDFromCtx(c)
+	if !ok {
+		return apperror.NewBusiness(apperror.CodeUnauthorized, "unauthorized")
+	}
+
+	roles, err := h.service.GetRoles(c.Context(), userID)
+	if err != nil {
+	}
+	rolesStr := make([]string, 0, len(roles))
+	for _, role := range roles {
+		rolesStr = append(rolesStr, role.String())
+	}
+	return c.JSON(RolesResponse{Roles: rolesStr})
 }
 
 func (h *Handler) GetMyProfile(c fiber.Ctx) error {

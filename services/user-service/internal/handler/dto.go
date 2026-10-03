@@ -62,3 +62,7 @@ type ListUsersResponse struct {
 	Limit  int            `json:"limit"`
 	Offset int            `json:"offset"`
 }
+
+type RolesResponse struct {
+	Roles []string `json:"roles"`
+}

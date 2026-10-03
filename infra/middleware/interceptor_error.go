@@ -6,19 +6,17 @@ import (
 	"log/slog"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/apperror"
+	"github.com/Krokozabra213/e-commerce_shop/infra/logger"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type ErrorInterceptor struct {
-	logger *slog.Logger
 }
 
-func NewErrorInterceptor(logger *slog.Logger) *ErrorInterceptor {
-	return &ErrorInterceptor{
-		logger: logger,
-	}
+func NewErrorInterceptor() *ErrorInterceptor {
+	return &ErrorInterceptor{}
 }
 
 func (i *ErrorInterceptor) Unary() grpc.UnaryServerInterceptor {
@@ -42,9 +40,11 @@ func (i *ErrorInterceptor) handleError(ctx context.Context, err error, method st
 		return err
 	}
 
+	log := logger.FromContext(ctx)
+
 	var appErr *apperror.AppError
 	if !errors.As(err, &appErr) {
-		i.logger.Error("internal server error",
+		log.Error("internal server error",
 			slog.Any("error", err),
 			slog.String("method", method),
 		)
@@ -72,7 +72,7 @@ func (i *ErrorInterceptor) handleError(ctx context.Context, err error, method st
 		attrs = append(attrs, appErr.Attrs().ToAttrs()...)
 	}
 
-	i.logger.LogAttrs(ctx, slogLevel, appErr.Message(), attrs...)
+	log.LogAttrs(ctx, slogLevel, appErr.Message(), attrs...)
 
 	if grpcCode == codes.Internal || grpcCode == codes.Unknown {
 		return status.Error(grpcCode, "Internal server error")

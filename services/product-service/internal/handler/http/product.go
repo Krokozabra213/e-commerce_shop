@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/apperror"
 	"github.com/Krokozabra213/e-commerce_shop/services/product-service/internal/domain"
@@ -24,13 +23,11 @@ type ProductService interface {
 
 type ProductHandler struct {
 	productService ProductService
-	log            *slog.Logger
 }
 
-func NewProductHandler(productService ProductService, log *slog.Logger) *ProductHandler {
+func NewProductHandler(productService ProductService) *ProductHandler {
 	return &ProductHandler{
 		productService: productService,
-		log:            log,
 	}
 }
 

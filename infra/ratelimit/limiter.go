@@ -21,13 +21,13 @@ type Limiter struct {
 	log       *slog.Logger
 }
 
-func New(rdb redis.UniversalClient, keyPrefix string, log *slog.Logger) (*Limiter, error) {
+func New(rdb redis.UniversalClient, keyPrefix string, log *slog.Logger) *Limiter {
 	return &Limiter{
 		rdb:       rdb,
 		keyPrefix: keyPrefix,
 		script:    redis.NewScript(luaScript),
 		log:       log,
-	}, nil
+	}
 }
 
 type Result struct {

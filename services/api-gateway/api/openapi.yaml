@@ -1,0 +1,2538 @@
+openapi: 3.0.3
+
+info:
+  title: API Gateway
+  version: 1.0.0
+  description: |
+    Единая точка входа в интернет-магазин. Все клиентские запросы идут через
+    API Gateway, который проверяет JWT-токен, подставляет заголовки
+    `X-User-Id` / `X-User-Roles` и проксирует вызовы в микросервисы:
+
+    | Раздел API        | Микросервис     | Транспорт |
+    |-------------------|-----------------|-----------|
+    | `/auth/*`         | auth-service    | HTTP      |
+    | `/users/*`        | user-service    | HTTP      |
+    | `/products/*`     | product-service | HTTP      |
+    | `/categories/*`   | product-service | HTTP      |
+    | `/inventory/*`    | inventory-service | HTTP    |
+    | `/orders/*`       | order-service   | HTTP      |
+    | остатки в каталоге | inventory-service | gRPC    |
+
+    ## Как тестировать
+
+    1. `POST /api/v1/auth/register` — регистрация (получите письмо с токеном подтверждения).
+    2. `POST /api/v1/auth/login` — вход. В ответе придёт `access_token` и cookie `refresh_token`.
+    3. Нажмите **Authorize** в Swagger UI и вставьте `access_token` (без слова `Bearer`).
+    4. Все защищённые эндпоинты станут доступны.
+
+    ## Авторизация
+
+    - Защищённые эндпоинты требуют заголовок `Authorization: Bearer <access_token>`.
+    - `access_token` — короткоживущий JWT (RS256, issuer `auth-service`).
+    - `refresh_token` передаётся в HttpOnly-cookie `refresh_token`
+      и используется только в `POST /api/v1/auth/refresh` и `POST /api/v1/auth/logout`.
+    - Роли (`ROLE_USER`, `ROLE_MANAGER`, `ROLE_ADMIN`) gateway получает из
+      user-service и передаёт дальше в `X-User-Roles`. Проверку прав
+      (403 Forbidden) выполняет микросервис-получатель.
+
+    ### Cookie refresh_token и локальное тестирование
+
+    Cookie выставляется с флагами `Secure` в production режиме и `Path=/api/v1/auth/refresh`,
+    поэтому браузер сохранит её **только по HTTPS**. При запуске шлюза
+    напрямую по `http://localhost:4000` cookie не сохранится, и
+    `refresh` / `logout` вернут 400 `missing refresh token cookie`.
+    Для локальных тестов запускайте в dev режиме (APP_ENV=dev в gateway) или передавайте cookie вручную через
+    devtools → Application → Cookies или через `curl -c/-b` при запуске в production режиме.
+
+    ## Формат ответа с ошибкой
+
+    Все ошибки возвращаются в едином формате:
+    `{"error": "<сообщение>"}` с кодом 400 / 401 / 403 / 404 / 409 / 429 / 500.
+
+    ## Формат цены
+
+    Все цены указаны в копейках (целое число, без дробной части).
+    Например, `9999900` = 99 999 рублей 00 копеек.
+
+    ## Ограничения частоты запросов (rate limit)
+
+    Rate limit включён глобально и считается в Redis отдельно для
+    авторизованных и анонимных запросов (dev-значения):
+
+    | Кто              | Burst (capacity) | Восстановление |
+    |------------------|------------------|----------------|
+    | С access token   | 60               | 2 запроса/сек |
+    | Без токена (по IP)| 20             | 1 запрос/2 сек |
+
+    При превышении возвращается `429 Too Many Requests` и заголовки
+    `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Retry-After`,
+    `X-RateLimit-Reset`. Во всех ответах также присутствует `X-Request-Id`
+    (тот же идентификатор прокидывается в микросервисы и в логи).
+
+    ## Идентификаторы
+
+    - `user_id` / `order_id` / `event_id` / `correlation_id` — UUID.
+    - `id` товара и категории — MongoDB ObjectId (24 hex-символа).
+    - `product_id` в заказах и инвентаре передаётся строкой и должен
+      совпадать с `id` товара из каталога.
+
+    ## Агрегация каталога и остатков
+
+    `GET /api/v1/products` и `GET /api/v1/products/{id}` — единственные
+    ответы, которые gateway **обогащает**: к товару из product-service
+    добавляются остатки, полученные по gRPC из inventory-service
+    (`quantity`, `in_stock`), а имена полей приводятся к `snake_case`.
+    Остальные ответы проксируются «как есть», в том числе с
+    `camelCase`-именованием полей (`categorySlug`, `createdAt`).
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:4000
+    description: Локальный запуск (docker compose / go run)
+
+tags:
+  - name: auth
+    description: Регистрация, вход, обновление токенов, OAuth, подтверждение email
+  - name: users
+    description: Профиль пользователя и управление ролями
+  - name: products
+    description: Каталог товаров с агрегированными остатками
+  - name: categories
+    description: Справочник категорий
+  - name: inventory
+    description: Управление остатками на складах
+  - name: orders
+    description: Заказы и жизненный цикл заказа
+  - name: system
+    description: Health-check и readiness шлюза
+
+security:
+  - bearerAuth: []
+
+paths:
+
+  # ────────────────────────────── System ──────────────────────────────
+
+  /healthz:
+    get:
+      summary: Health-check шлюза
+      description: |
+        Всегда возвращает `200 OK`, если процесс шлюза жив и принимает соединения.
+        Не проверяет доступность зависимостей.
+      tags: [system]
+      operationId: healthCheck
+      security: []
+      responses:
+        '200':
+          description: Шлюз работает
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+
+  /readyz:
+    get:
+      summary: Readiness-проверка шлюза
+      description: |
+        Проверяет доступность Redis (используется для rate limit и JWT-кэша).
+        Таймаут проверки — 2 секунды.
+      tags: [system]
+      operationId: readyCheck
+      security: []
+      responses:
+        '200':
+          description: Все зависимости доступны
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+        '500':
+          description: Redis недоступен (`Redis unavailable`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: Internal server error
+
+  # ────────────────────────────── Auth ──────────────────────────────
+
+  /api/v1/auth/register:
+    post:
+      summary: Регистрация нового пользователя
+      description: |
+        Создаёт пользователя и отправляет письмо со ссылкой для подтверждения email.
+        Токен подтверждения передаётся в `GET /api/v1/auth/verify-email?token=...`.
+
+        Пароль: 8–72 символа (ограничение bcrypt).
+        Повторная регистрация с тем же email возвращает `409`.
+      tags: [auth]
+      operationId: register
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            examples:
+              default:
+                summary: Новый покупатель
+                value:
+                  email: user@example.com
+                  password: password123
+      responses:
+        '201':
+          description: Пользователь создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResponse'
+              example:
+                user_id: 550e8400-e29b-41d4-a716-446655440000
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: Пользователь с таким email уже зарегистрирован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/auth/login:
+    post:
+      summary: Вход и получение access/refresh токенов
+      description: |
+        Возвращает `access_token` в теле ответа и выставляет HttpOnly-cookie
+        `refresh_token` (см. раздел «Cookie refresh_token и локальное тестирование»).
+        `user_id` нужен для запросов от имени пользователя.
+      tags: [auth]
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              default:
+                value:
+                  email: user@example.com
+                  password: password123
+      responses:
+        '200':
+          description: Успешный вход
+          headers:
+            Set-Cookie:
+              description: |
+                `refresh_token=<jwt>; Path=/api/v1/auth/refresh; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+              example:
+                access_token: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1NTBlODQwMCJ9.signature
+                user_id: 550e8400-e29b-41d4-a716-446655440000
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          description: Неверный email или пароль
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                wrongCredentials:
+                  summary: Неверный email или пароль
+                  value:
+                    error: Пользователя с таким email или паролем не существует
+                oauthOnly:
+                  summary: Аккаунт только через сторонний сервис
+                  value:
+                    error: Этот аккаунт привязан к входу через сторонний сервис. Войдите через него или восстановите пароль.
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/auth/refresh:
+    post:
+      summary: Обновить access-токен
+      description: |
+        Принимает refresh-токен **только из cookie** `refresh_token`
+        (тело запроса игнорируется) и возвращает новый `access_token`.
+        Cookie обновляется: после каждого refresh старая перестаёт работать
+        (ротация refresh-токена).
+
+        Без cookie возвращается `400 missing refresh token cookie`.
+      tags: [auth]
+      operationId: refreshToken
+      security:
+        - refreshTokenCookie: []
+      responses:
+        '200':
+          description: Новый access-токен выдан
+          headers:
+            Set-Cookie:
+              description: Новая cookie `refresh_token`
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessTokenResponse'
+              example:
+                access_token: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1NTBlODQwMCJ9.signature
+        '400':
+          description: Отсутствует cookie `refresh_token`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: missing refresh token cookie
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/auth/logout:
+    post:
+      summary: Выход
+      description: |
+        Удаляет refresh-токен на стороне сервиса и очищает cookie `refresh_token`.
+        Требуется и access-токен, и cookie.
+      tags: [auth]
+      operationId: logout
+      responses:
+        '204':
+          description: Выход выполнен, cookie очищена
+        '400':
+          description: Отсутствует cookie `refresh_token`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: missing refresh token cookie
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/auth/verify-email:
+    get:
+      summary: Подтверждение email по токену из письма
+      description: |
+        Публичный эндпоинт, вызывается из ссылки в письме.
+        Токен одноразовый; повторное использование возвращает ошибку.
+      tags: [auth]
+      operationId: verifyEmail
+      security: []
+      parameters:
+        - name: token
+          in: query
+          required: true
+          description: Токен подтверждения из письма (минимум 32 символа)
+          schema:
+            type: string
+            minLength: 32
+          example: 3f9a2c1e7b4d8a6f0e5c9b2d7a1f4c8e0b3d6a9f
+      responses:
+        '200':
+          description: Email подтверждён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyEmailResponse'
+              example:
+                success: true
+                message: Email успешно подтверждён
+        '400':
+          description: |
+            Токен не передан, короче 32 символов, не найден,
+            уже использован или истёк по сроку
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing:
+                  summary: Токен не передан
+                  value:
+                    error: Параметр token обязателен
+                alreadyUsed:
+                  summary: Ссылка уже использована
+                  value:
+                    error: Ссылка уже была использована
+                expired:
+                  summary: Срок действия ссылки истёк
+                  value:
+                    error: Срок действия ссылки истёк
+                invalid:
+                  summary: Ссылка недействительна
+                  value:
+                    error: Ссылка недействительна
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/auth/resend-verification:
+    post:
+      summary: Отправить письмо с подтверждением повторно
+      description: |
+        Отправляет новое письмо подтверждения на email пользователя из access-токена.
+        Возвращает `204 No Content`, чтобы не раскрывать наличие аккаунта.
+      tags: [auth]
+      operationId: resendVerificationEmail
+      responses:
+        '204':
+          description: Письмо отправлено
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Пользователь не найден (`Пользователь не найден`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/auth/oauth/{provider}/login:
+    get:
+      summary: Получить ссылку для входа через OAuth-провайдера
+      description: |
+        Возвращает URL для редиректа на сторонний сервис и `state`
+        для защиты от CSRF. `state` необходимо передать в callback-запрос.
+      tags: [auth]
+      operationId: oauthLogin
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/OAuthProviderPath'
+      responses:
+        '200':
+          description: URL авторизации получен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthLoginResponse'
+              example:
+                auth_url: https://accounts.google.com/o/oauth2/v2/auth?client_id=...&redirect_uri=...
+                state: 8f14e45fceea167a5a36dedd4bea2543
+        '400':
+          description: Неизвестный OAuth-провайдер (`Невалидный провайдер`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: Невалидный провайдер
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/auth/oauth/{provider}/callback:
+    get:
+      summary: Callback OAuth-провайдера
+      description: |
+        Обрабатывает редирект от провайдера, обменивает `code` на токены,
+        создаёт/находит пользователя, выставляет cookie `refresh_token`
+        и возвращает `access_token`.
+      tags: [auth]
+      operationId: oauthCallback
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/OAuthProviderPath'
+        - name: code
+          in: query
+          required: true
+          description: Код авторизации, полученный от провайдера
+          schema:
+            type: string
+          example: 4/0AVMBsJi7e9fF2nKx...
+        - name: state
+          in: query
+          required: true
+          description: Значение `state`, полученное в login-ответе
+          schema:
+            type: string
+          example: 8f14e45fceea167a5a36dedd4bea2543
+      responses:
+        '200':
+          description: Авторизация успешна
+          headers:
+            Set-Cookie:
+              description: Cookie `refresh_token`
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessTokenResponse'
+        '400':
+          description: Не передан `code` или `state`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: Отсутствуют параметры code или state
+        '401':
+          description: "`code` невалиден или истёк"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ────────────────────────────── Users ──────────────────────────────
+
+  /api/v1/users/me:
+    get:
+      summary: Профиль текущего пользователя
+      description: Возвращает профиль по `user_id` из access-токена, включая роли.
+      tags: [users]
+      operationId: getMyProfile
+      responses:
+        '200':
+          description: Профиль
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+              example:
+                id: 550e8400-e29b-41d4-a716-446655440000
+                email: user@example.com
+                first_name: Иван
+                last_name: Петров
+                phone: '+79991234567'
+                avatar_url: https://cdn.example.com/avatars/1.png
+                roles: [ROLE_USER]
+                created_at: '2024-01-15T10:30:00Z'
+                updated_at: '2024-01-15T10:30:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    patch:
+      summary: Обновить свой профиль
+      description: |
+        Частичное обновление: передавайте только изменяемые поля.
+        Поля, не переданные в теле запроса, остаются без изменений.
+        Email изменить нельзя.
+      tags: [users]
+      operationId: updateMyProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+            examples:
+              partial:
+                summary: Изменить только имя
+                value:
+                  first_name: Иван
+              full:
+                summary: Заполнить профиль полностью
+                value:
+                  first_name: Иван
+                  last_name: Петров
+                  phone: '+79991234567'
+                  avatar_url: https://cdn.example.com/avatars/1.png
+      responses:
+        '200':
+          description: Профиль обновлён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/users:
+    get:
+      summary: Список пользователей
+      description: |
+        Страница списка пользователей с offset-пагинацией.
+        Доступно только пользователям с ролью `ROLE_ADMIN`.
+      tags: [users]
+      operationId: listUsers
+      parameters:
+        - name: limit
+          in: query
+          description: |
+            Количество пользователей в ответе.
+            Значения вне диапазона 1–100 игнорируются, используется 20.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          description: Количество пропускаемых пользователей
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Страница списка пользователей
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListUsersResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/users/{id}:
+    parameters:
+      - $ref: '#/components/parameters/UserIdPath'
+
+    get:
+      summary: Получить пользователя по ID
+      description: Доступно только пользователям с ролью `ROLE_ADMIN`.
+      tags: [users]
+      operationId: getUserById
+      responses:
+        '200':
+          description: Профиль пользователя
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: "`id` не является корректным UUID"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: invalid id format
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      summary: Удалить пользователя
+      description: |
+        Удаляет пользователя (soft delete). Доступно только `ROLE_ADMIN`.
+        Нельзя удалить самого себя.
+      tags: [users]
+      operationId: deleteUser
+      responses:
+        '204':
+          description: Пользователь удалён
+        '400':
+          description: "`id` не является корректным UUID"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Нельзя удалить самого себя или последнего администратора
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/users/{id}/roles/{role}:
+    parameters:
+      - $ref: '#/components/parameters/UserIdPath'
+      - $ref: '#/components/parameters/RolePath'
+
+    post:
+      summary: Выдать роль пользователю
+      description: |
+        Добавляет роль пользователю. Повторная выдача той же роли
+        не является ошибкой. Доступно только `ROLE_ADMIN`.
+      tags: [users]
+      operationId: addUserRole
+      responses:
+        '204':
+          description: Роль выдана
+        '400':
+          description: Некорректный `id` или неизвестная роль
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Пользователь не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      summary: Снять роль с пользователя
+      description: |
+        Убирает роль у пользователя. Нельзя снять последнюю роль
+        и нельзя снять роль у себя самого. Доступно только `ROLE_ADMIN`.
+      tags: [users]
+      operationId: removeUserRole
+      responses:
+        '204':
+          description: Роль снята
+        '400':
+          description: Некорректный `id` или неизвестная роль
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Пользователь или роль не найдены
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Нельзя снять единственную роль пользователя
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ────────────────────────────── Products ──────────────────────────────
+
+  /api/v1/products:
+    get:
+      summary: Список товаров с фильтрами и курсорной пагинацией
+      description: |
+        Публичный каталог. Возвращает только опубликованные и не удалённые
+        товары.
+
+        Ответ обогащён остатками из inventory-service (gRPC):
+        у каждого товара есть `quantity` и `in_stock`.
+        Если остатки получить не удалось, `quantity` будет `0`,
+        а `in_stock` — `false`.
+
+        Курсорная пагинация: `cursor` — opaque-токен из поля `next_cursor`
+        предыдущего ответа. Не декодировать и не изменять.
+        Если `next_cursor` равен `null` — это последняя страница.
+      tags: [products]
+      operationId: listProducts
+      security: []
+      parameters:
+        - name: category
+          in: query
+          description: Фильтр по slug категории
+          schema:
+            type: string
+          example: smartphones
+        - name: search
+          in: query
+          description: Поиск по названию и описанию
+          schema:
+            type: string
+          example: iPhone
+        - name: price_min
+          in: query
+          description: Минимальная цена в копейках
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+          example: 100000
+        - name: price_max
+          in: query
+          description: Максимальная цена в копейках
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+          example: 500000
+        - name: sort
+          in: query
+          description: |
+            Сортировка результатов:
+            - `latest` — сначала новые (по умолчанию)
+            - `price_asc` — по возрастанию цены
+            - `price_desc` — по убыванию цены
+          schema:
+            type: string
+            enum: [latest, price_asc, price_desc]
+            default: latest
+        - name: cursor
+          in: query
+          description: Opaque-токен для следующей страницы (из поля `next_cursor`)
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: |
+            Размер страницы. Значения вне диапазона 1–100 игнорируются.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Страница каталога
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductWithStockList'
+              example:
+                items:
+                  - id: 507f1f77bcf86cd799439011
+                    name: iPhone 15 Pro
+                    description: Титановый корпус, чип A17 Pro
+                    price: 9999900
+                    category_slug: smartphones
+                    published: true
+                    quantity: 12
+                    in_stock: true
+                    created_at: '2024-01-15T10:30:00Z'
+                    updated_at: '2024-01-15T10:30:00Z'
+                next_cursor: eyJfaWQiOiI1MDdmMWY3N2JjZjg2Y2Q3OTk0MzkwMTEifQ==
+                has_more: true
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      summary: Создать товар
+      description: |
+        Создаёт товар. Требуется `ROLE_MANAGER` или `ROLE_ADMIN`.
+        Товар создаётся с переданными полями; если `published` не задано —
+        сохраняется как черновик и не попадает в публичный каталог.
+      tags: [products]
+      operationId: createProduct
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductRequest'
+            examples:
+              draft:
+                summary: Черновик
+                value:
+                  name: iPhone 15 Pro
+                  description: Титановый корпус, чип A17 Pro
+                  price: 9999900
+                  categorySlug: smartphones
+                  published: false
+              published:
+                summary: Сразу опубликованный
+                value:
+                  name: AirPods Pro 2
+                  price: 1999000
+                  categorySlug: accessories
+                  published: true
+      responses:
+        '201':
+          description: Товар создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Категория с указанным `categorySlug` не найдена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Товар с таким названием уже существует
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/products/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ProductIdPath'
+
+    get:
+      summary: Получить товар по ID
+      description: |
+        Публичный эндпоинт. Возвращает товар, обогащённый остатками
+        (`quantity`, `in_stock`) из inventory-service.
+
+        Если остатки получить не удалось, товар всё равно вернётся:
+        `quantity` = 0, `in_stock` = false.
+
+        Удалённые (soft delete) и неопубликованные товары недоступны — `404`.
+      tags: [products]
+      operationId: getProduct
+      security: []
+      responses:
+        '200':
+          description: Товар с остатками
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductWithStock'
+              example:
+                id: 507f1f77bcf86cd799439011
+                name: iPhone 15 Pro
+                description: Титановый корпус, чип A17 Pro
+                price: 9999900
+                category_slug: smartphones
+                published: true
+                quantity: 12
+                in_stock: true
+                created_at: '2024-01-15T10:30:00Z'
+                updated_at: '2024-01-15T10:30:00Z'
+        '404':
+          description: Товар не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    put:
+      summary: Обновить товар
+      description: |
+        Частичное обновление: передавайте только изменяемые поля.
+        Требуется `ROLE_MANAGER` или `ROLE_ADMIN`.
+      tags: [products]
+      operationId: updateProduct
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProductRequest'
+            examples:
+              price:
+                summary: Изменить цену и снять с публикации
+                value:
+                  price: 8999900
+                  published: false
+      responses:
+        '200':
+          description: Товар обновлён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Товар или категория не найдены
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      summary: Удалить товар
+      description: |
+        Мягкое удаление: товар пропадает из каталога, но остаётся в базе.
+        Требуется `ROLE_ADMIN`.
+      tags: [products]
+      operationId: deleteProduct
+      responses:
+        '204':
+          description: Товар удалён
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Товар не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/products/{id}/publish:
+    parameters:
+      - $ref: '#/components/parameters/ProductIdPath'
+
+    post:
+      summary: Переключить статус публикации товара
+      description: |
+        Переключает `published`: `true` → `false` или `false` → `true`.
+        Возвращает обновлённый товар. Требуется `ROLE_MANAGER` или `ROLE_ADMIN`.
+      tags: [products]
+      operationId: togglePublishProduct
+      responses:
+        '200':
+          description: Статус публикации изменён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Товар не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ────────────────────────────── Categories ──────────────────────────────
+
+  /api/v1/categories:
+    get:
+      summary: Список категорий
+      description: Публичный справочник категорий, отсортированный по имени.
+      tags: [categories]
+      operationId: listCategories
+      security: []
+      responses:
+        '200':
+          description: Список категорий
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryList'
+              example:
+                items:
+                  - id: 507f191e810c19729de860ea
+                    name: Смартфоны
+                    slug: smartphones
+                    description: Мобильные телефоны и аксессуары
+                    createdAt: '2024-01-10T09:00:00Z'
+                    updatedAt: '2024-01-10T09:00:00Z'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      summary: Создать категорию
+      description: |
+        Создаёт категорию. Требуется `ROLE_ADMIN`.
+        `slug` — уникальный идентификатор для URL, генерируется вручную.
+      tags: [categories]
+      operationId: createCategory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCategoryRequest'
+            examples:
+              default:
+                value:
+                  name: Смартфоны
+                  slug: smartphones
+                  description: Мобильные телефоны и аксессуары
+      responses:
+        '201':
+          description: Категория создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Категория с таким slug уже существует
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/categories/{slug}:
+    parameters:
+      - $ref: '#/components/parameters/CategorySlugPath'
+
+    get:
+      summary: Получить категорию по slug
+      tags: [categories]
+      operationId: getCategory
+      security: []
+      responses:
+        '200':
+          description: Категория
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '404':
+          description: Категория не найдена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    put:
+      summary: Обновить категорию
+      description: |
+        Частичное обновление категории. `slug` изменить нельзя.
+        Требуется `ROLE_ADMIN`.
+      tags: [categories]
+      operationId: updateCategory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCategoryRequest'
+            examples:
+              default:
+                value:
+                  name: Смартфоны и гаджеты
+                  description: Мобильные телефоны, планшеты и аксессуары
+      responses:
+        '200':
+          description: Категория обновлена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Категория не найдена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      summary: Удалить категорию
+      description: |
+        Удаляет категорию. Если в категории есть товары —
+        возвращается `409`. Требуется `ROLE_ADMIN`.
+      tags: [categories]
+      operationId: deleteCategory
+      responses:
+        '204':
+          description: Категория удалена
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Категория не найдена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: В категории есть товары, удаление невозможно
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ────────────────────────────── Inventory ──────────────────────────────
+
+  /api/v1/inventory/{productId}:
+    parameters:
+      - $ref: '#/components/parameters/InventoryProductIdPath'
+
+    get:
+      summary: Остатки товара
+      description: |
+        Публичный эндпоинт. Возвращает доступное количество единиц
+        товара на складе.
+
+        Если для товара ещё не создана запись об остатках —
+        возвращается `404`.
+      tags: [inventory]
+      operationId: getStock
+      security: []
+      responses:
+        '200':
+          description: Остатки товара
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stock'
+              example:
+                product_id: 507f1f77bcf86cd799439011
+                available_quantity: 12
+                in_stock: true
+        '404':
+          description: Запись об остатках не найдена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/inventory:
+    post:
+      summary: Создать запись об остатках
+      description: |
+        Создаёт остатки для товара с указанным начальным количеством.
+        Требуется `ROLE_MANAGER` или `ROLE_ADMIN`.
+
+        `product_id` — это `id` товара из каталога.
+        Если запись уже существует — возвращается `409`.
+      tags: [inventory]
+      operationId: createStock
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStockRequest'
+            examples:
+              default:
+                value:
+                  product_id: 507f1f77bcf86cd799439011
+                  initial_quantity: 100
+      responses:
+        '201':
+          description: Остатки созданы
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                message: Stock created successfully
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Запись об остатках для товара уже существует
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/inventory/{productId}/add:
+    parameters:
+      - $ref: '#/components/parameters/InventoryProductIdPath'
+
+    post:
+      summary: Пополнить остатки
+      description: |
+        Увеличивает доступное количество товара на указанное значение
+        (приход на склад). Требуется `ROLE_MANAGER` или `ROLE_ADMIN`.
+      tags: [inventory]
+      operationId: addStock
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddStockRequest'
+            examples:
+              default:
+                value:
+                  quantity: 25
+      responses:
+        '200':
+          description: Остатки пополнены
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                message: Stock updated successfully
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Запись об остатках не найдена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ────────────────────────────── Orders ──────────────────────────────
+
+  /api/v1/orders:
+    post:
+      summary: Создать заказ
+      description: |
+        Оформляет заказ от имени пользователя из access-токена.
+
+        **Обязательный заголовок `Idempotency-Key`** — UUID. Повторный запрос
+        с тем же ключом возвращает результат первого запроса, а не создаёт
+        новый заказ. Для каждой новой попытки оформления нужен новый ключ
+        (например, сгенерируйте его кнопкой в Swagger UI или
+        `uuidgen`).
+
+        Операция выполняется через Saga: резервирование остатков,
+        списание, подтверждение оплаты. Если что-то не удалось —
+        выполняется компенсация, а заказ получает статус `CANCELLED`.
+        Итоговый статус возвращается в поле `status`.
+      tags: [orders]
+      operationId: createOrder
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+            examples:
+              default:
+                value:
+                  items:
+                    - product_id: 507f1f77bcf86cd799439011
+                      quantity: 2
+                    - product_id: 507f1f77bcf86cd799439012
+                      quantity: 1
+      responses:
+        '201':
+          description: Заказ создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateOrderResponse'
+              example:
+                order_id: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
+                status: RESERVED
+                total_price: 21999800
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Товар из списка не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Недостаточно остатков или заказ с таким `Idempotency-Key` уже обработан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    get:
+      summary: Список своих заказов
+      description: |
+        Возвращает заказы текущего пользователя, отсортированные
+        от новых к старым. Ответ — массив объектов, пагинации нет.
+      tags: [orders]
+      operationId: listOrders
+      responses:
+        '200':
+          description: Список заказов
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Order'
+              example:
+                - order_id: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
+                  user_id: 550e8400-e29b-41d4-a716-446655440000
+                  status: PAID
+                  total_price: 21999800
+                  created_at: '2024-02-01T12:00:00Z'
+                  updated_at: '2024-02-01T12:05:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/orders/{id}:
+    parameters:
+      - $ref: '#/components/parameters/OrderIdPath'
+
+    get:
+      summary: Получить заказ по ID
+      description: Возвращает детали заказа, если он принадлежит текущему пользователю.
+      tags: [orders]
+      operationId: getOrderById
+      responses:
+        '200':
+          description: Заказ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          description: "`id` не является корректным UUID"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: invalid id format
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Заказ не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/orders/{id}/ship:
+    parameters:
+      - $ref: '#/components/parameters/OrderIdPath'
+
+    post:
+      summary: Перевести заказ в статус «Отправлен»
+      description: |
+        Переход статуса `PAID` → `SHIPPED`.
+        Требуется `ROLE_MANAGER` или `ROLE_ADMIN`.
+        Недопустимый переход возвращает `409`.
+      tags: [orders]
+      operationId: shipOrder
+      responses:
+        '204':
+          description: Заказ отправлен
+        '400':
+          description: "`id` не является корректным UUID"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Заказ не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Недопустимый переход статуса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/orders/{id}/complete:
+    parameters:
+      - $ref: '#/components/parameters/OrderIdPath'
+
+    post:
+      summary: Завершить заказ
+      description: |
+        Переход статуса `SHIPPED` → `COMPLETED`.
+        Требуется `ROLE_MANAGER` или `ROLE_ADMIN`.
+      tags: [orders]
+      operationId: completeOrder
+      responses:
+        '204':
+          description: Заказ завершён
+        '400':
+          description: "`id` не является корректным UUID"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Заказ не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Недопустимый переход статуса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/orders/{id}/payment/success:
+    parameters:
+      - $ref: '#/components/parameters/OrderIdPath'
+
+    post:
+      summary: Подтверждение успешной оплаты
+      description: |
+        Обрабатывает событие об успешной оплате: переводит заказ
+        в статус `PAID`. Идемпотентна по `event_id` — повторная доставка
+        того же события не меняет состояние заказа повторно.
+
+        Требуется `ROLE_MANAGER` или `ROLE_ADMIN`.
+      tags: [orders]
+      operationId: paymentSuccess
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentSuccessRequest'
+            examples:
+              default:
+                value:
+                  event_id: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+                  correlation_id: 1b671a64-40d5-491e-99b0-da01ff1f3341
+      responses:
+        '204':
+          description: Оплата подтверждена
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Заказ не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Недопустимый переход статуса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/orders/{id}/payment/failed:
+    parameters:
+      - $ref: '#/components/parameters/OrderIdPath'
+
+    post:
+      summary: Сообщение об отказе оплаты
+      description: |
+        Обрабатывает событие об отказе оплаты: отменяет заказ и
+        возвращает зарезервированные остатки на склад.
+        Идемпотентна по `event_id`.
+
+        Требуется `ROLE_MANAGER` или `ROLE_ADMIN`.
+      tags: [orders]
+      operationId: paymentFailed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentFailedRequest'
+            examples:
+              default:
+                value:
+                  event_id: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+                  correlation_id: 1b671a64-40d5-491e-99b0-da01ff1f3341
+                  reason: insufficient funds
+      responses:
+        '204':
+          description: Отказ по оплате обработан, заказ отменён
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Заказ не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Недопустимый переход статуса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access-токен, полученный в `POST /api/v1/auth/login`
+        или `POST /api/v1/auth/refresh`.
+
+        В Swagger UI нажмите **Authorize** и вставьте только значение
+        токена, без префикса `Bearer `.
+
+        Получить токен:
+        ```bash
+        curl -s -X POST http://localhost:4000/api/v1/auth/login \
+          -H 'Content-Type: application/json' \
+          -d '{"email":"user@example.com","password":"password123"}'
+        ```
+
+        Токен подписан RS256, issuer — `auth-service`. Gateway проверяет
+        подпись, срок действия и `exp`/`nbf` с небольшим допуском (leeway).
+        Истёкший или подделанный токен → `401`.
+    refreshTokenCookie:
+      type: apiKey
+      in: cookie
+      name: refresh_token
+      description: |
+        HttpOnly-cookie с refresh-токеном. Выставляется автоматически
+        ответами `login`, `oauth/callback` и `refresh`.
+
+        Cookie имеет флаги `Secure` и `Path=/api/v1/auth/refresh`,
+        поэтому по `http://localhost:4000` браузер её не сохранит —
+        для локального тестирования задайте значение cookie вручную
+        через **Authorize** в Swagger UI.
+
+  parameters:
+
+    IdempotencyKeyHeader:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Ключ идемпотентности (UUID) для создания заказа.
+        Повторный запрос с тем же ключом не создаёт новый заказ,
+        а возвращает результат первого.
+      schema:
+        type: string
+        format: uuid
+      example: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
+
+    ProductIdPath:
+      name: id
+      in: path
+      required: true
+      description: ID товара (MongoDB ObjectId)
+      schema:
+        type: string
+        pattern: '^[a-f0-9]{24}$'
+      example: 507f1f77bcf86cd799439011
+
+    InventoryProductIdPath:
+      name: productId
+      in: path
+      required: true
+      description: ID товара, остатки которого запрашиваются (`id` из каталога)
+      schema:
+        type: string
+      example: 507f1f77bcf86cd799439011
+
+    CategorySlugPath:
+      name: slug
+      in: path
+      required: true
+      description: Slug категории
+      schema:
+        type: string
+        pattern: '^[a-z0-9-]+$'
+      example: smartphones
+
+    UserIdPath:
+      name: id
+      in: path
+      required: true
+      description: ID пользователя (UUID)
+      schema:
+        type: string
+        format: uuid
+      example: 550e8400-e29b-41d4-a716-446655440000
+
+    RolePath:
+      name: role
+      in: path
+      required: true
+      description: |
+        Роль пользователя. Передаётся в user-service как есть;
+        корректность значения проверяется на стороне сервиса.
+      schema:
+        $ref: '#/components/schemas/UserRole'
+
+    OrderIdPath:
+      name: id
+      in: path
+      required: true
+      description: ID заказа (UUID)
+      schema:
+        type: string
+        format: uuid
+      example: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
+
+    OAuthProviderPath:
+      name: provider
+      in: path
+      required: true
+      description: OAuth-провайдер
+      schema:
+        type: string
+        enum: [google, github]
+
+  schemas:
+
+    ErrorResponse:
+      type: object
+      description: Единый формат ошибки для всех эндпоинтов шлюза
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Сообщение об ошибке (может быть на русском языке)
+          example: Проверьте корректность данных
+
+    UserRole:
+      type: string
+      description: |
+        Роль пользователя:
+        - `ROLE_USER` — покупатель
+        - `ROLE_MANAGER` — управление товарами, остатками, заказами
+        - `ROLE_ADMIN` — полный доступ, включая пользователей и категории
+      enum: [ROLE_USER, ROLE_MANAGER, ROLE_ADMIN]
+
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          example: user@example.com
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+          description: 8–72 символа (ограничение bcrypt)
+          example: password123
+
+    RegisterResponse:
+      type: object
+      required: [user_id]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          example: user@example.com
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+          example: password123
+
+    LoginResponse:
+      type: object
+      required: [access_token, user_id]
+      properties:
+        access_token:
+          type: string
+          description: "JWT для заголовка `Authorization: Bearer`"
+          example: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1NTBlODQwMCJ9.signature
+        user_id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+
+    AccessTokenResponse:
+      type: object
+      required: [access_token]
+      properties:
+        access_token:
+          type: string
+          example: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1NTBlODQwMCJ9.signature
+
+    VerifyEmailResponse:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Email успешно подтверждён
+
+    OAuthLoginResponse:
+      type: object
+      required: [auth_url, state]
+      properties:
+        auth_url:
+          type: string
+          format: uri
+          description: URL для редиректа пользователя на OAuth-провайдера
+          example: https://accounts.google.com/o/oauth2/v2/auth?client_id=...&redirect_uri=...
+        state:
+          type: string
+          description: Токен защиты от CSRF, вернуть в callback-запрос
+          example: 8f14e45fceea167a5a36dedd4bea2543
+
+    User:
+      type: object
+      description: Профиль пользователя
+      required: [id, email, roles, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        first_name:
+          type: string
+          nullable: true
+          example: Иван
+        last_name:
+          type: string
+          nullable: true
+          example: Петров
+        phone:
+          type: string
+          nullable: true
+          example: '+79991234567'
+        avatar_url:
+          type: string
+          format: uri
+          nullable: true
+          example: https://cdn.example.com/avatars/1.png
+        roles:
+          type: array
+          description: Роли пользователя
+          items:
+            $ref: '#/components/schemas/UserRole'
+          example: [ROLE_USER]
+        created_at:
+          type: string
+          format: date-time
+          example: '2024-01-15T10:30:00Z'
+        updated_at:
+          type: string
+          format: date-time
+          example: '2024-01-15T10:30:00Z'
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Заполняется только для мягко удалённых пользователей
+          example: null
+
+    UpdateProfileRequest:
+      type: object
+      description: |
+        Частичное обновление профиля. Передавайте только изменяемые поля.
+        Email и роли изменить нельзя.
+      properties:
+        first_name:
+          type: string
+          example: Иван
+        last_name:
+          type: string
+          example: Петров
+        phone:
+          type: string
+          example: '+79991234567'
+        avatar_url:
+          type: string
+          format: uri
+          example: https://cdn.example.com/avatars/1.png
+
+    ListUsersResponse:
+      type: object
+      description: Страница списка пользователей с offset-пагинацией
+      required: [users, total, limit, offset]
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        total:
+          type: integer
+          description: Всего пользователей в системе
+          example: 42
+        limit:
+          type: integer
+          example: 20
+        offset:
+          type: integer
+          example: 0
+
+    ProductWithStock:
+      type: object
+      description: |
+        Товар, обогащённый остатками. Используется **только** в
+        `GET /api/v1/products` и `GET /api/v1/products/{id}`:
+        поля snake_case, добавлены `quantity` и `in_stock`.
+      required:
+        - id
+        - name
+        - price
+        - category_slug
+        - published
+        - quantity
+        - in_stock
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          pattern: '^[a-f0-9]{24}$'
+          description: MongoDB ObjectId
+          example: 507f1f77bcf86cd799439011
+        name:
+          type: string
+          maxLength: 200
+          example: iPhone 15 Pro
+        description:
+          type: string
+          nullable: true
+          maxLength: 2000
+          example: Титановый корпус, чип A17 Pro
+        price:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Цена в копейках
+          example: 9999900
+        category_slug:
+          type: string
+          example: smartphones
+        published:
+          type: boolean
+          example: true
+        quantity:
+          type: integer
+          format: int32
+          description: |
+            Остаток на складе. `0`, если остатки получить не удалось
+            или товар ещё не заведён в inventory-service.
+          example: 12
+        in_stock:
+          type: boolean
+          description: "`true`, если `quantity > 0`"
+          example: true
+        created_at:
+          type: string
+          format: date-time
+          example: '2024-01-15T10:30:00Z'
+        updated_at:
+          type: string
+          format: date-time
+          example: '2024-01-15T10:30:00Z'
+
+    ProductWithStockList:
+      type: object
+      description: |
+        Страница каталога с курсорной пагинацией.
+        Если `next_cursor` равен `null` — достигнут конец списка.
+      required: [items, has_more]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductWithStock'
+        next_cursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque-токен в base64 для запроса следующей страницы.
+            Передайте его в параметр `cursor`. `null` — последняя страница.
+          example: eyJfaWQiOiI1MDdmMWY3N2JjZjg2Y2Q3OTk0MzkwMTEifQ==
+        has_more:
+          type: boolean
+          description: Есть ли товары за пределами текущей страницы
+          example: true
+
+    Product:
+      type: object
+      description: |
+        Товар в том виде, как его возвращает product-service
+        (camelCase, без остатков). Используется в ответах
+        `POST`/`PUT /api/v1/products` и
+        `POST /api/v1/products/{id}/publish`.
+
+        ⚠️ Внимание: чтение товара (`GET`) возвращает
+        `ProductWithStock` в snake_case — форматы отличаются.
+      required: [id, name, price, categorySlug, published, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          pattern: '^[a-f0-9]{24}$'
+          example: 507f1f77bcf86cd799439011
+        name:
+          type: string
+          maxLength: 200
+          example: iPhone 15 Pro
+        description:
+          type: string
+          nullable: true
+          maxLength: 2000
+          example: Титановый корпус, чип A17 Pro
+        price:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Цена в копейках
+          example: 9999900
+        categorySlug:
+          type: string
+          example: smartphones
+        published:
+          type: boolean
+          example: true
+        createdAt:
+          type: string
+          format: date-time
+          example: '2024-01-15T10:30:00Z'
+        updatedAt:
+          type: string
+          format: date-time
+          example: '2024-01-15T10:30:00Z'
+
+    CreateProductRequest:
+      type: object
+      required: [name, price, categorySlug]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: iPhone 15 Pro
+        description:
+          type: string
+          maxLength: 2000
+          example: Титановый корпус, чип A17 Pro
+        price:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Цена в копейках
+          example: 9999900
+        categorySlug:
+          type: string
+          description: Slug существующей категории
+          example: smartphones
+        published:
+          type: boolean
+          default: false
+          description: Опубликовать сразу или сохранить как черновик
+
+    UpdateProductRequest:
+      type: object
+      description: Частичное обновление товара. Указывайте только изменяемые поля.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          nullable: true
+          maxLength: 2000
+        price:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 8999900
+        categorySlug:
+          type: string
+        published:
+          type: boolean
+
+    Category:
+      type: object
+      description: |
+        Категория в формате product-service (camelCase: `createdAt`, `updatedAt`).
+      required: [id, name, slug, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          pattern: '^[a-f0-9]{24}$'
+          example: 507f191e810c19729de860ea
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: Смартфоны
+        slug:
+          type: string
+          pattern: '^[a-z0-9-]+$'
+          example: smartphones
+        description:
+          type: string
+          nullable: true
+          maxLength: 500
+          example: Мобильные телефоны и аксессуары
+        createdAt:
+          type: string
+          format: date-time
+          example: '2024-01-10T09:00:00Z'
+        updatedAt:
+          type: string
+          format: date-time
+          example: '2024-01-10T09:00:00Z'
+
+    CategoryList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Category'
+
+    CreateCategoryRequest:
+      type: object
+      required: [name, slug]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: Смартфоны
+        slug:
+          type: string
+          pattern: '^[a-z0-9-]+$'
+          description: Уникальный slug для URL, задаётся вручную
+          example: smartphones
+        description:
+          type: string
+          maxLength: 500
+          example: Мобильные телефоны и аксессуары
+
+    UpdateCategoryRequest:
+      type: object
+      description: Частичное обновление категории. `slug` изменить нельзя.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          nullable: true
+          maxLength: 500
+
+    Stock:
+      type: object
+      description: Остатки товара на складе
+      required: [product_id, available_quantity, in_stock]
+      properties:
+        product_id:
+          type: string
+          description: ID товара из каталога
+          example: 507f1f77bcf86cd799439011
+        available_quantity:
+          type: integer
+          description: Доступное количество единиц
+          example: 12
+        in_stock:
+          type: boolean
+          example: true
+
+    CreateStockRequest:
+      type: object
+      required: [product_id]
+      properties:
+        product_id:
+          type: string
+          description: ID товара из каталога
+          example: 507f1f77bcf86cd799439011
+        initial_quantity:
+          type: integer
+          minimum: 0
+          default: 0
+          description: Начальное количество единиц товара
+          example: 100
+
+    AddStockRequest:
+      type: object
+      required: [quantity]
+      properties:
+        quantity:
+          type: integer
+          minimum: 1
+          description: Количество единиц для прибавления к остатку
+          example: 25
+
+    MessageResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          example: Stock updated successfully
+
+    OrderItem:
+      type: object
+      required: [product_id, quantity]
+      properties:
+        product_id:
+          type: string
+          description: ID товара из каталога
+          example: 507f1f77bcf86cd799439011
+        quantity:
+          type: integer
+          minimum: 1
+          example: 2
+
+    CreateOrderRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          description: Состав заказа. Повторяющиеся товары объединяются сервисом.
+          items:
+            $ref: '#/components/schemas/OrderItem'
+
+    OrderStatus:
+      type: string
+      description: |
+        Статус заказа:
+        - `NEW` — создан
+        - `RESERVED` — остатки зарезервированы, ожидает оплаты
+        - `PAID` — оплата подтверждена
+        - `SHIPPED` — передан в доставку
+        - `COMPLETED` — вручён
+        - `CANCELLED` — отменён (в т.ч. по ошибке Saga)
+      enum: [NEW, RESERVED, PAID, SHIPPED, COMPLETED, CANCELLED]
+
+    CreateOrderResponse:
+      type: object
+      required: [order_id, status, total_price]
+      properties:
+        order_id:
+          type: string
+          format: uuid
+          example: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        total_price:
+          type: integer
+          format: int64
+          description: Итоговая сумма заказа в копейках
+          example: 21999800
+
+    Order:
+      type: object
+      required: [order_id, user_id, status, total_price, created_at, updated_at]
+      properties:
+        order_id:
+          type: string
+          format: uuid
+          example: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
+        user_id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        total_price:
+          type: integer
+          format: int64
+          description: Итоговая сумма заказа в копейках
+          example: 21999800
+        created_at:
+          type: string
+          format: date-time
+          example: '2024-02-01T12:00:00Z'
+        updated_at:
+          type: string
+          format: date-time
+          example: '2024-02-01T12:05:00Z'
+
+    PaymentSuccessRequest:
+      type: object
+      required: [event_id, correlation_id]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: ID события оплаты — ключ идемпотентности обработки
+          example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+        correlation_id:
+          type: string
+          format: uuid
+          description: ID корреляции для прослеживания по логам и трейсам
+          example: 1b671a64-40d5-491e-99b0-da01ff1f3341
+
+    PaymentFailedRequest:
+      type: object
+      required: [event_id, correlation_id, reason]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: ID события оплаты — ключ идемпотентности обработки
+          example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+        correlation_id:
+          type: string
+          format: uuid
+          description: ID корреляции для прослеживания по логам и трейсам
+          example: 1b671a64-40d5-491e-99b0-da01ff1f3341
+        reason:
+          type: string
+          description: Причина отказа (например, недостаточно средств)
+          example: insufficient funds
+
+  responses:
+
+    BadRequest:
+      description: Некорректный запрос (невалидный UUID, отсутствие обязательного параметра)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: invalid id format
+
+    ValidationError:
+      description: Ошибка валидации тела запроса (`Проверьте корректность данных`)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: Проверьте корректность данных
+
+    Unauthorized:
+      description: |
+        Не передан `Authorization: Bearer <token>`, токен невалиден или истёк
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            noToken:
+              summary: Токен не передан
+              value:
+                error: missing access token
+            invalid:
+              summary: Токен невалиден или истёк
+              value:
+                error: invalid or expired access token
+
+    Forbidden:
+      description: Недостаточно прав — у пользователя нет требуемой роли
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: insufficient permissions
+
+    NotFound:
+      description: Запрашиваемый ресурс не найден
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    TooManyRequests:
+      description: |
+        Превышен лимит частоты запросов. Повторите через
+        `X-RateLimit-Retry-After` секунд.
+      headers:
+        X-RateLimit-Limit:
+          description: Максимальное число запросов в окне
+          schema:
+            type: integer
+          example: 60
+        X-RateLimit-Remaining:
+          description: Сколько запросов осталось
+          schema:
+            type: integer
+          example: 0
+        X-RateLimit-RetryAfter:
+          description: Через сколько секунд можно повторить
+          schema:
+            type: integer
+          example: 2
+        X-RateLimit-Reset:
+          description: Unix-время сброса окна
+          schema:
+            type: integer
+            format: int64
+          example: 1736940000
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: too many requests
+
+    InternalError:
+      description: Внутренняя ошибка шлюза или недоступность микросервиса
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: Internal server error

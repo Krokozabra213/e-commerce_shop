@@ -1,0 +1,52 @@
+app:
+  name: "api-gateway"
+
+http:
+  host: "0.0.0.0"
+  port: "4000"
+  readTimeout: 10s
+  writeTimeout: 10s
+  maxHeaderBytes: 1
+  bodyLimitBytes: 4
+  allowedOrigins:
+    - "http://localhost:3000"
+
+slog:
+  level: "debug"
+  format: "text"
+  add_source: true
+
+http_auth_client:
+  addr: "auth-service:8100"
+
+http_inventory_client:
+  addr: "inventory-service:8400"
+
+http_order_client:
+  addr: "order-service:8600"
+
+http_product_client:
+  addr: "product-service:8300"
+
+http_user_client:
+  addr: "user-service:8200"
+
+grpc_inventory_client:
+  addr: "auth-service:44100"
+
+jwt:
+  issuer: "auth-service"
+
+rate_limiter:
+  enabled: true
+  authenticated:
+    capacity: 60
+    rate: 2.0
+    window: 1m
+  anonymous:
+    capacity: 20
+    rate: 0.5
+    window: 1m
+  failOpen: true
+  keyPrefix: "ratelimit"
+

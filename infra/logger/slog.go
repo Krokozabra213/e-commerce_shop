@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"context"
 	"log/slog"
 	"os"
 
@@ -53,4 +54,32 @@ func parseLevel(s string) slog.Level {
 	default:
 		return slog.LevelInfo
 	}
+}
+
+type ctxKey struct{}
+type requestIDKey struct{}
+
+func WithLogger(ctx context.Context, log *slog.Logger) context.Context {
+	return context.WithValue(ctx, ctxKey{}, log)
+}
+
+func FromContext(ctx context.Context) *slog.Logger {
+	if log, ok := ctx.Value(ctxKey{}).(*slog.Logger); ok && log != nil {
+		return log
+	}
+	return slog.Default()
+}
+
+func WithRequestID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, requestIDKey{}, id)
+}
+
+func RequestIDFromContext(ctx context.Context) string {
+	id, _ := ctx.Value(requestIDKey{}).(string)
+	return id
+}
+
+func FromContextOK(ctx context.Context) (*slog.Logger, bool) {
+	l, ok := ctx.Value(ctxKey{}).(*slog.Logger)
+	return l, ok && l != nil
 }

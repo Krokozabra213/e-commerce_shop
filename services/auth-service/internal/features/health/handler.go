@@ -35,6 +35,11 @@ func (h *HealthHandler) RegisterRoutes(router fiber.Router) {
 }
 
 func (h *HealthHandler) HealthCheck(c fiber.Ctx) error {
+	return c.Status(http.StatusOK).JSON(fiber.Map{"status": "ready"})
+}
+
+func (h *HealthHandler) ReadyCheck(c fiber.Ctx) error {
+
 	ctx, cancel := context.WithTimeout(c.Context(), 3*time.Second)
 	defer cancel()
 
@@ -66,8 +71,4 @@ func (h *HealthHandler) HealthCheck(c fiber.Ctx) error {
 	}
 
 	return c.Status(statusCode).JSON(status)
-}
-
-func (h *HealthHandler) ReadyCheck(c fiber.Ctx) error {
-	return c.Status(http.StatusOK).JSON(fiber.Map{"status": "ready"})
 }

@@ -2,7 +2,6 @@ package authfeature
 
 import (
 	"crypto/rsa"
-	"log/slog"
 	"time"
 
 	jwtkeystore "github.com/Krokozabra213/e-commerce_shop/infra/jwt/keystore"
@@ -29,7 +28,6 @@ type Module struct {
 
 type Dependencies struct {
 	PGXPool       *pgxpool.Pool
-	Log           *slog.Logger
 	Config        *config.Config
 	RSAPrivateKey *rsa.PrivateKey
 }
@@ -73,7 +71,7 @@ func New(deps *Dependencies) *Module {
 		deps.Config.EmailVerification,
 	)
 
-	h := authhandler.New(svc, deps.Log)
+	h := authhandler.New(svc)
 
 	return &Module{
 		Service: svc,

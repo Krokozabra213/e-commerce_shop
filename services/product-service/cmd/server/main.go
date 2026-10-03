@@ -72,11 +72,11 @@ func run() error {
 	productSvc := productService.NewService(productWrite, productRead, categoryRead)
 	categorySvc := categoryService.NewService(categoryWrite, categoryRead, productRead)
 
-	handler := httphandler.NewHandler(productSvc, categorySvc, log)
+	handler := httphandler.NewHandler(productSvc, categorySvc)
 
-	requestLogger := inframiddleware.RequestLogger(log)
+	loggerRequestIDMiddleware := inframiddleware.RequestLogger(log)
 	errorHandler := inframiddleware.NewErrorHandler(log)
-	server := httpx.NewFiberServer(cfg.HTTP, log, errorHandler, requestLogger)
+	server := httpx.NewFiberServer(cfg.HTTP, log, errorHandler, loggerRequestIDMiddleware)
 
 	server.App.Get("/swagger/*", swaggo.New(swaggo.Config{
 		URL:         "/api/openapi.yaml",
