@@ -43,7 +43,6 @@ func New(
 	logger *slog.Logger,
 	outboxConfig infracfg.OutboxConfig,
 ) *Service {
-
 	workerID := uuid.NewString()
 
 	logger = logger.With(

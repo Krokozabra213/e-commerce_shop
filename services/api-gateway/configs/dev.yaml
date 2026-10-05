@@ -50,3 +50,5 @@ rate_limiter:
   failOpen: true
   keyPrefix: "ratelimit"
 
+telemetry:
+  enabled: false

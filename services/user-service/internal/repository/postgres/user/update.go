@@ -57,7 +57,7 @@ func (r *PostgresUserRepository) UpdateProfile(
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.NotFoundError
+			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("update user profile: %w", err)
 	}

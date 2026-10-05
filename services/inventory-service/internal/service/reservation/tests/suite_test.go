@@ -56,6 +56,7 @@ func (s *testSuite) expectTxFailure(txErr error) {
 		Return(txErr)
 }
 
+//nolint:unused
 func (s *testSuite) expectTxSuccessTwice() {
 	s.txManager.EXPECT().
 		WithinTransaction(gomock.Any(), gomock.Any()).

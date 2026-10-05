@@ -84,7 +84,7 @@ func (s *ReservationService) createOutboxEvent(
 	}
 
 	if err := s.outboxRepo.Create(ctx, event); err != nil {
-		if errors.Is(err, domain.AlreadyExistsError) {
+		if errors.Is(err, domain.ErrAlreadyExists) {
 			return err
 		}
 		return apperror.NewInternal("outboxRepo.Create", err, "Что-то пошло не так", nil)

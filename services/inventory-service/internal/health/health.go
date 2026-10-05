@@ -12,7 +12,7 @@ type Pinger interface {
 	Ping(ctx context.Context) error
 }
 
-type HealthHandler struct {
+type Handler struct {
 	pgPool                 Pinger
 	orderCancelledDLQ      Pinger
 	orderCreatedDLQ        Pinger
@@ -21,15 +21,15 @@ type HealthHandler struct {
 	schemaRegistryClient   Pinger
 }
 
-func NewHealthHandler(
+func NewHandler(
 	pgPool Pinger,
 	orderCancelledDLQ Pinger,
 	orderCreatedDLQ Pinger,
 	orderCreatedConsumer Pinger,
 	orderCancelledConsumer Pinger,
 	schemaRegistryClient Pinger,
-) *HealthHandler {
-	return &HealthHandler{
+) *Handler {
+	return &Handler{
 		schemaRegistryClient:   schemaRegistryClient,
 		pgPool:                 pgPool,
 		orderCancelledDLQ:      orderCancelledDLQ,
@@ -39,17 +39,16 @@ func NewHealthHandler(
 	}
 }
 
-func (h *HealthHandler) RegisterRoutes(router fiber.Router) {
+func (h *Handler) RegisterRoutes(router fiber.Router) {
 	router.Get("/healthz", h.HealthCheck)
 	router.Get("/readyz", h.ReadyCheck)
 }
 
-func (h *HealthHandler) HealthCheck(c fiber.Ctx) error {
+func (h *Handler) HealthCheck(c fiber.Ctx) error {
 	return c.Status(http.StatusOK).JSON(fiber.Map{"status": "ready"})
 }
 
-func (h *HealthHandler) ReadyCheck(c fiber.Ctx) error {
-
+func (h *Handler) ReadyCheck(c fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(c.Context(), 3*time.Second)
 	defer cancel()
 

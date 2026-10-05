@@ -32,7 +32,7 @@ func (s *Service) Refresh(ctx context.Context, input RefreshInput) (*RefreshOutp
 	err = s.txManager.WithinTransaction(ctx, func(ctx context.Context) error {
 		storedToken, err := s.refreshTokenRepo.GetByTokenHashForUpdate(ctx, oldTokenHash)
 		if err != nil {
-			if errors.Is(err, domain.NotFoundError) {
+			if errors.Is(err, domain.ErrNotFound) {
 				return apperror.NewBusiness(apperror.CodeUnauthorized, "Токен пользователя ненайден")
 			}
 			return apperror.NewInternal("refreshTokenRepo.GetByTokenHashForUpdate", err, "Что-то пошло не так", nil)
@@ -69,7 +69,6 @@ func (s *Service) Refresh(ctx context.Context, input RefreshInput) (*RefreshOutp
 
 		return nil
 	})
-
 	if err != nil {
 		return nil, err
 	}

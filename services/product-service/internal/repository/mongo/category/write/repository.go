@@ -26,7 +26,6 @@ func NewCategoryWriteRepo(db *mongo.Database) *CategoryWriteRepo {
 }
 
 func (r *CategoryWriteRepo) Create(ctx context.Context, category *domain.Category) (string, error) {
-
 	doc := mongodto.CategoryDocument{
 		ID:          primitive.NewObjectID(),
 		Slug:        category.Slug,

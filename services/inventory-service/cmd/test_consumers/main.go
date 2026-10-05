@@ -149,7 +149,7 @@ func (p *TestProducer) SendOrderCancelled(ctx context.Context, topic string, eve
 	return p.client.ProduceSync(ctx, record).FirstErr()
 }
 
-func (p *TestProducer) SendInvalidMessage(ctx context.Context, topic string, key string, value []byte) error {
+func (p *TestProducer) SendInvalidMessage(ctx context.Context, topic, key string, value []byte) error {
 	// Этот метод отправляет СЫРЫЕ байты (без Schema Registry).
 	// Он идеально подходит для Теста 5, чтобы проверить, как консьюмер отвергает сообщения без Magic Byte.
 	record := &kgo.Record{

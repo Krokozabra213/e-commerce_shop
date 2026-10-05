@@ -69,6 +69,7 @@ func main() {
 	log.Println("🎉 Имитационное сообщение успешно отправлено в топик inventory.reserved!")
 }
 
+//nolint:unused
 func main2() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

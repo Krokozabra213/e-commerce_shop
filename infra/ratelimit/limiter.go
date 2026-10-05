@@ -49,7 +49,6 @@ func (l *Limiter) Allow(ctx context.Context, key string, rule infraConfig.RateLi
 		now,
 		ttlSec,
 	).Slice()
-
 	if err != nil {
 		return nil, fmt.Errorf("ratelimit redis: %w", err)
 	}

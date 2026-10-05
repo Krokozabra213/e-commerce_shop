@@ -15,6 +15,7 @@ import (
 	infracfg "github.com/Krokozabra213/e-commerce_shop/infra/config"
 	"github.com/Krokozabra213/e-commerce_shop/infra/httpx"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 type UpdateProfileRequest struct {
@@ -57,10 +58,14 @@ func NewUserClient(cfg infracfg.HTTPClientConfig) *UserClient {
 	}
 
 	cfg.Addr = addr + "/"
+
+	baseTransport := WithRequestID(http.DefaultTransport)
+	instrumentedTransport := otelhttp.NewTransport(baseTransport)
+
 	return &UserClient{
 		httpClient: &http.Client{
 			Timeout:   cfg.Timeout,
-			Transport: WithRequestID(nil),
+			Transport: instrumentedTransport,
 		},
 		config: cfg,
 	}

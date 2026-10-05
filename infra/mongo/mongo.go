@@ -9,14 +9,16 @@ import (
 	infracfg "github.com/Krokozabra213/e-commerce_shop/infra/config"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.opentelemetry.io/contrib/instrumentation/go.mongodb.org/mongo-driver/mongo/otelmongo"
 )
 
 func NewMongoClient(cfg *infracfg.MongoDBConfig) (*mongo.Client, error) {
-
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.ConnectTimeout)
 	defer cancel()
 
 	clientOpts := options.Client().ApplyURI(cfg.URI)
+
+	clientOpts.SetMonitor(otelmongo.NewMonitor())
 
 	clientOpts.SetMaxPoolSize(cfg.MaxPoolSize)
 	clientOpts.SetMinPoolSize(cfg.MinPoolSize)

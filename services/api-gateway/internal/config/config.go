@@ -23,6 +23,7 @@ type Config struct {
 	GRPCInventoryClient infracfg.GRPCClientConfig `yaml:"grpc_inventory_client" env-prefix:"GRPC_INVENTION_CLIENT"`
 	JWTClient           JWTClientConfig           `yaml:"jwt" env-prefix:"JWT_"`
 	RateLimiter         infracfg.RateLimitConfig  `yaml:"rate_limiter" env-prefix:"RATE_LIMIT"`
+	Telemetry           infracfg.TelemetryConfig  `yaml:"telemetry" env-prefix:"TELEMETRY_"`
 }
 
 func Init() (*Config, error) {

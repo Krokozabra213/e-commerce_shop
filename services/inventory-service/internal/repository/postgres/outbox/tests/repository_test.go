@@ -178,7 +178,7 @@ func TestPostgresOutboxRepository_Create(t *testing.T) {
 		require.NoError(t, repo.Create(ctx, event1))
 
 		err := repo.Create(ctx, event2)
-		require.ErrorIs(t, err, domain.AlreadyExistsError)
+		require.ErrorIs(t, err, domain.ErrAlreadyExists)
 	})
 
 	t.Run("success - creates multiple events", func(t *testing.T) {
@@ -579,7 +579,7 @@ func TestPostgresOutboxRepository_MarkPublished(t *testing.T) {
 		nonExistentID := uuid.New()
 
 		err := repo.MarkPublished(ctx, []uuid.UUID{nonExistentID})
-		require.ErrorIs(t, err, domain.NotFoundError)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 
 	t.Run("error - some events not found", func(t *testing.T) {
@@ -593,7 +593,7 @@ func TestPostgresOutboxRepository_MarkPublished(t *testing.T) {
 
 		// Пытаемся опубликовать существующий и несуществующий ID
 		err := repo.MarkPublished(ctx, []uuid.UUID{event.ID, nonExistentID})
-		require.ErrorIs(t, err, domain.NotFoundError)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 
 	t.Run("success - marks only specified events", func(t *testing.T) {
@@ -697,6 +697,6 @@ func TestPostgresOutboxRepository_MarkPublished(t *testing.T) {
 
 		// Пытаемся опубликовать второй раз
 		err = repo.MarkPublished(ctx, []uuid.UUID{event.ID})
-		require.ErrorIs(t, err, domain.NotFoundError)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 }

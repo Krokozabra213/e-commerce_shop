@@ -34,7 +34,7 @@ func (r *PostgresUserRepository) ConfirmEmail(ctx context.Context, userID uuid.U
 	}
 
 	if ct.RowsAffected() == 0 {
-		return domain.NotFoundError
+		return domain.ErrNotFound
 	}
 
 	return nil

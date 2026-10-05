@@ -23,7 +23,6 @@ func (s *OrderService) HandlePaymentSucceeded(ctx context.Context, input svcDTO.
 	}
 
 	return s.txManager.WithinTransaction(ctx, func(ctx context.Context) error {
-
 		if err := s.inboxRepo.Create(ctx, inboxEvent); err != nil {
 			if errors.Is(err, domain.ErrAlreadyExists) {
 				return nil

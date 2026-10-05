@@ -159,7 +159,7 @@ func TestPostgresUserRepository_Create(t *testing.T) {
 		require.NoError(t, err)
 
 		_, err = repo.GetByID(ctx, user.ID)
-		assert.True(t, errors.Is(err, domain.NotFoundError))
+		assert.True(t, errors.Is(err, domain.ErrNotFound))
 	})
 
 	t.Run("error - duplicate email returns AlreadyExistsError", func(t *testing.T) {
@@ -186,7 +186,7 @@ func TestPostgresUserRepository_Create(t *testing.T) {
 		}
 		err = repo.Create(ctx, user2)
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, domain.AlreadyExistsError))
+		assert.True(t, errors.Is(err, domain.ErrAlreadyExists))
 	})
 }
 
@@ -240,7 +240,7 @@ func TestPostgresUserRepository_GetByEmail(t *testing.T) {
 
 		_, err := repo.GetByEmail(ctx, "nonexistent@example.com")
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, domain.NotFoundError))
+		assert.True(t, errors.Is(err, domain.ErrNotFound))
 	})
 
 	t.Run("error - email is case-sensitive (if DB collation requires it)", func(t *testing.T) {
@@ -251,7 +251,7 @@ func TestPostgresUserRepository_GetByEmail(t *testing.T) {
 
 		found, err := repo.GetByEmail(ctx, "casesensitive@test.com")
 		if err != nil {
-			assert.True(t, errors.Is(err, domain.NotFoundError))
+			assert.True(t, errors.Is(err, domain.ErrNotFound))
 		} else {
 			assert.Equal(t, email, found.Email)
 		}
@@ -305,7 +305,7 @@ func TestPostgresUserRepository_GetByID(t *testing.T) {
 
 		_, err := repo.GetByID(ctx, uuid.New())
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, domain.NotFoundError))
+		assert.True(t, errors.Is(err, domain.ErrNotFound))
 	})
 }
 
@@ -378,7 +378,7 @@ func TestPostgresUserRepository_ConfirmEmail(t *testing.T) {
 
 		err := repo.ConfirmEmail(ctx, uuid.New())
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, domain.NotFoundError))
+		assert.True(t, errors.Is(err, domain.ErrNotFound))
 	})
 
 	t.Run("idempotency - calling confirm twice does not error", func(t *testing.T) {

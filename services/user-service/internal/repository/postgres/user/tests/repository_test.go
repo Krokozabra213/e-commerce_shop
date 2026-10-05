@@ -14,7 +14,6 @@ import (
 	"github.com/Krokozabra213/e-commerce_shop/services/user-service/migrations"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-
 )
 
 var testDB *testutils.TestDatabase
@@ -36,6 +35,7 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	os.Exit(code)
 }
+
 func ptr[T any](v T) *T {
 	return &v
 }

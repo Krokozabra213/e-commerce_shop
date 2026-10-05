@@ -33,7 +33,7 @@ func (r *PostgresUserRepository) GetByID(ctx context.Context, id uuid.UUID) (*do
 	user, err := scanUserWithRoles(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.NotFoundError
+			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("scan user by id: %w", err)
 	}

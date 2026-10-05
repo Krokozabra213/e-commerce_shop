@@ -22,6 +22,7 @@ type Config struct {
 	KafkaProducer               infracfg.KafkaProducerConfig  `yaml:"kafka_producer" env-prefix:"KAFKA_"`
 	SchemaRegistry              infracfg.SchemaRegistryConfig `yaml:"schema_registry" env-prefix:"SCHEMA_REGISTRY_"`
 	ProductGRPCClient           infracfg.GRPCClientConfig     `yaml:"product_grpc_client" env-prefix:"PRODUCT_GRPC_"`
+	Telemetry                   infracfg.TelemetryConfig      `yaml:"telemetry" env-prefix:"TELEMETRY_"`
 }
 
 func Init() (*Config, error) {

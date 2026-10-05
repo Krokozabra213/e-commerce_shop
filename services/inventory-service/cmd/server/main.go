@@ -16,6 +16,7 @@ import (
 	"github.com/Krokozabra213/e-commerce_shop/infra/logger"
 	inframiddleware "github.com/Krokozabra213/e-commerce_shop/infra/middleware"
 	"github.com/Krokozabra213/e-commerce_shop/infra/postgres"
+	"github.com/Krokozabra213/e-commerce_shop/infra/telemetry"
 	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/infra/worker"
 	"github.com/Krokozabra213/e-commerce_shop/services/inventory-service/internal/config"
@@ -49,7 +50,15 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	log := logger.Init(&cfg.Logger)
+	openTelemetry, err := telemetry.Setup(ctx, cfg.Telemetry, cfg.Logger.Level)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = openTelemetry.Shutdown(ctx)
+	}()
+
+	log := logger.Init(&cfg.Logger, openTelemetry.Handler)
 
 	pool, err := postgres.NewPostgresClient(&cfg.Postgres)
 	if err != nil {
@@ -152,7 +161,7 @@ func run() error {
 		}
 	}()
 
-	healthHandler := health.NewHealthHandler(pool, orderCancelledDLQ, orderCreatedDLQ, orderCreatedConsumer, orderCancelledConsumer, schemaRegistry)
+	healthHandler := health.NewHandler(pool, orderCancelledDLQ, orderCreatedDLQ, orderCreatedConsumer, orderCancelledConsumer, schemaRegistry)
 	healthHandler.RegisterRoutes(server.App)
 
 	select {

@@ -1,0 +1,8 @@
+[extend]
+useDefault = true
+
+[allowlist]
+  description = "Global allowlist"
+  paths = [
+    '''services/api-gateway/api/openapi\.yaml''',
+  ]

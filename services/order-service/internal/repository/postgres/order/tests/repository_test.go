@@ -43,7 +43,7 @@ func truncateAll(t *testing.T) {
 	testutils.TruncateTables(t, testDB.Pool, "order_items", "saga_state", "orders", "outbox", "inbox_events")
 }
 
-func newOrder(userID uuid.UUID, idempotencyKey uuid.UUID, totalPrice int64) *domain.Order {
+func newOrder(userID, idempotencyKey uuid.UUID, totalPrice int64) *domain.Order {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	return &domain.Order{
 		ID:             uuid.New(),

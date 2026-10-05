@@ -13,7 +13,7 @@ import (
 func (s *Service) GetMyProfile(ctx context.Context, userID uuid.UUID) (*domain.User, error) {
 	user, err := s.repo.GetByID(ctx, userID)
 	if err != nil {
-		if errors.Is(err, domain.NotFoundError) {
+		if errors.Is(err, domain.ErrNotFound) {
 			return nil, apperror.NewBusiness(apperror.CodeUnauthorized, "Пользователя с таким id не существует")
 		}
 		return nil, fmt.Errorf("get my profile: %w", err)

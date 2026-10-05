@@ -36,7 +36,7 @@ func (h *Handler) Login(c fiber.Ctx) error {
 	}
 
 	provider := domain.OAuthProvider(providerStr)
-	if provider.IsValid() == false {
+	if !provider.IsValid() {
 		return apperror.NewBusiness(apperror.CodeValidation, "Невалидный провайдер")
 	}
 
@@ -65,7 +65,7 @@ func (h *Handler) Callback(c fiber.Ctx) error {
 	}
 
 	validProvider := domain.OAuthProvider(provider)
-	if validProvider.IsValid() == false {
+	if !validProvider.IsValid() {
 		return apperror.NewBusiness(apperror.CodeValidation, "Невалидный провайдер")
 	}
 

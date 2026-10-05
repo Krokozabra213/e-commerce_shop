@@ -12,6 +12,7 @@ import (
 	"github.com/Krokozabra213/e-commerce_shop/infra/apperror"
 	infracfg "github.com/Krokozabra213/e-commerce_shop/infra/config"
 	"github.com/Krokozabra213/e-commerce_shop/infra/httpx"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 type CreateStockRequest struct {
@@ -46,10 +47,14 @@ func NewInventoryClient(cfg infracfg.HTTPClientConfig) *InventoryClient {
 	}
 
 	cfg.Addr = addr + "/"
+
+	baseTransport := WithRequestID(http.DefaultTransport)
+	instrumentedTransport := otelhttp.NewTransport(baseTransport)
+
 	return &InventoryClient{
 		httpClient: &http.Client{
 			Timeout:   cfg.Timeout,
-			Transport: WithRequestID(nil),
+			Transport: instrumentedTransport,
 		},
 		config: cfg,
 	}

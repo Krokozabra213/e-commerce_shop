@@ -15,7 +15,7 @@ func (r ReservationFailedReason) String() string {
 }
 
 var (
-	NotFoundError          = errors.New("not found")
-	AlreadyExistsError     = errors.New("already exists")
-	InsufficientStockError = errors.New("insufficient stock")
+	ErrNotFound          = errors.New("not found")
+	ErrAlreadyExists     = errors.New("already exists")
+	ErrInsufficientStock = errors.New("insufficient stock")
 )

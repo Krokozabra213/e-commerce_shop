@@ -24,7 +24,7 @@ type OrderRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (order *domain.Order, err error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.OrderStatus) (err error)
 	GetListByUserID(ctx context.Context, userID uuid.UUID) ([]domain.Order, error)
-	UpdateStatusIfCurrent(ctx context.Context, id uuid.UUID, newStatus domain.OrderStatus, expectedStatus domain.OrderStatus) error
+	UpdateStatusIfCurrent(ctx context.Context, id uuid.UUID, newStatus, expectedStatus domain.OrderStatus) error
 }
 
 type SagaRepository interface {

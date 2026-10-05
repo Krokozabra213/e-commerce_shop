@@ -45,7 +45,7 @@ func (r *PostgresRefreshTokenRepository) Create(ctx context.Context, token *doma
 	_, err := querier.Exec(ctx, query, args)
 	if err != nil {
 		if postgres.IsUniqueViolation(err) {
-			return domain.AlreadyExistsError
+			return domain.ErrAlreadyExists
 		}
 		return fmt.Errorf("insert refresh token: %w", err)
 	}

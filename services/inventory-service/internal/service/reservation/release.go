@@ -34,7 +34,6 @@ func (s *ReservationService) Release(ctx context.Context, input service.ReleaseI
 
 		return nil
 	})
-
 	if err != nil {
 		return err
 	}

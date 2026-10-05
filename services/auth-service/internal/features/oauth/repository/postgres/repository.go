@@ -52,7 +52,7 @@ func (r *PostgresOAuthRepository) Create(ctx context.Context, account *domain.Oa
 	_, err := querier.Exec(ctx, query, args)
 	if err != nil {
 		if postgres.IsUniqueViolation(err) {
-			return domain.AlreadyExistsError
+			return domain.ErrAlreadyExists
 		}
 		return fmt.Errorf("execute query: %w", err)
 	}
@@ -95,10 +95,9 @@ func (r *PostgresOAuthRepository) GetByProviderAndProviderUserID(
 		&account.ProviderUserID,
 		&account.CreatedAt,
 	)
-
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.NotFoundError
+			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("scan row: %w", err)
 	}

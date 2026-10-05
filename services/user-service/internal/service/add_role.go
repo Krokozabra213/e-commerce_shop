@@ -13,10 +13,10 @@ import (
 func (s *Service) AddRole(ctx context.Context, userID uuid.UUID, role domain.Role) error {
 	err := s.repo.AddRole(ctx, userID, role)
 	if err != nil {
-		if errors.Is(err, domain.NotFoundError) {
+		if errors.Is(err, domain.ErrNotFound) {
 			return apperror.NewBusiness(apperror.CodeBadRequest, "Пользователя с таким id не существует")
 		}
-		if errors.Is(err, domain.AlreadyExistsError) {
+		if errors.Is(err, domain.ErrAlreadyExists) {
 			return apperror.NewBusiness(apperror.CodeBadRequest, "У пользователя уже есть эта роль")
 		}
 		return fmt.Errorf("add role: %w", err)

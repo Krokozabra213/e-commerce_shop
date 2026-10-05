@@ -28,10 +28,10 @@ func (r *PostgresUserRepository) AddRole(ctx context.Context, userID uuid.UUID, 
 	_, err := querier.Exec(ctx, query, args)
 	if err != nil {
 		if postgres.IsUniqueViolation(err) {
-			return domain.AlreadyExistsError
+			return domain.ErrAlreadyExists
 		}
 		if postgres.IsForeignKeyViolation(err) {
-			return domain.NotFoundError
+			return domain.ErrNotFound
 		}
 		return fmt.Errorf("add role: %w", err)
 	}

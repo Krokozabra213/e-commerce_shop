@@ -15,6 +15,7 @@ import (
 	"github.com/Krokozabra213/e-commerce_shop/infra/logger"
 	inframiddleware "github.com/Krokozabra213/e-commerce_shop/infra/middleware"
 	inframongo "github.com/Krokozabra213/e-commerce_shop/infra/mongo"
+	"github.com/Krokozabra213/e-commerce_shop/infra/telemetry"
 	"github.com/Krokozabra213/e-commerce_shop/services/product-service/internal/config"
 	grpchandler "github.com/Krokozabra213/e-commerce_shop/services/product-service/internal/handler/grpc"
 	httphandler "github.com/Krokozabra213/e-commerce_shop/services/product-service/internal/handler/http"
@@ -47,7 +48,15 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	log := logger.Init(&cfg.Logger)
+	openTelemetry, err := telemetry.Setup(ctx, cfg.Telemetry, cfg.Logger.Level)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = openTelemetry.Shutdown(ctx)
+	}()
+
+	log := logger.Init(&cfg.Logger, openTelemetry.Handler)
 
 	mongoClient, err := inframongo.NewMongoClient(&cfg.Mongo)
 	if err != nil {
@@ -89,7 +98,7 @@ func run() error {
 
 	handler.RegisterRoutes(server.App)
 
-	healthHandler := health.NewHealthHandler(mongoClient)
+	healthHandler := health.NewHandler(mongoClient)
 	healthHandler.RegisterRoutes(server.App)
 
 	grpcHandler := grpchandler.NewProductHandler(productSvc)

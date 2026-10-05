@@ -17,6 +17,7 @@ type Config struct {
 	Logger         infracfg.SlogConfig           `yaml:"slog" env-prefix:"SLOG_"`
 	KafkaConsumer  infracfg.KafkaConsumerConfig  `yaml:"kafkaConsumer" env-prefix:"KAFKA_CONSUMER"`
 	SchemaRegistry infracfg.SchemaRegistryConfig `yaml:"schema_registry" env-prefix:"SCHEMA_REGISTRY_"`
+	Telemetry      infracfg.TelemetryConfig      `yaml:"telemetry" env-prefix:"TELEMETRY_"`
 }
 
 func Init() (*Config, error) {

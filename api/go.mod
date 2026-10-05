@@ -1,6 +1,6 @@
 module github.com/Krokozabra213/e-commerce_shop/api
 
-go 1.26.4
+go 1.26.6
 
 require (
 	google.golang.org/grpc v1.83.2
@@ -8,7 +8,7 @@ require (
 )
 
 require (
-	go.opentelemetry.io/otel v1.46.0 // indirect
+	go.opentelemetry.io/otel v1.47.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.46.0 // indirect
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect

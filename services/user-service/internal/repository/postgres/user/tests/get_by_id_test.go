@@ -84,7 +84,7 @@ func TestPostgresUserRepository_GetByID(t *testing.T) {
 		defer truncateAll(t)
 
 		_, err := repo.GetByID(ctx, uuid.New())
-		require.ErrorIs(t, err, domain.NotFoundError)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 
 	t.Run("error - soft-deleted user returns ErrNotFound", func(t *testing.T) {
@@ -94,7 +94,7 @@ func TestPostgresUserRepository_GetByID(t *testing.T) {
 		require.NoError(t, repo.SoftDelete(ctx, user.ID))
 
 		_, err := repo.GetByID(ctx, user.ID)
-		require.ErrorIs(t, err, domain.NotFoundError)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 
 	t.Run("success - reads within transaction", func(t *testing.T) {

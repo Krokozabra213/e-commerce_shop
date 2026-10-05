@@ -131,7 +131,7 @@ func TestPostgresStockRepository_Create(t *testing.T) {
 		require.NoError(t, tx.Rollback(ctx))
 
 		_, err = repo.GetByProductID(ctx, productID)
-		require.ErrorIs(t, err, domain.NotFoundError)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 
 	t.Run("error - duplicate product_id", func(t *testing.T) {
@@ -144,7 +144,7 @@ func TestPostgresStockRepository_Create(t *testing.T) {
 		require.NoError(t, repo.Create(ctx, stock1))
 
 		err := repo.Create(ctx, stock2)
-		require.ErrorIs(t, err, domain.AlreadyExistsError)
+		require.ErrorIs(t, err, domain.ErrAlreadyExists)
 	})
 }
 
@@ -189,7 +189,7 @@ func TestPostgresStockRepository_GetByProductID(t *testing.T) {
 		nonExistentID := uuid.New().String()
 
 		_, err := repo.GetByProductID(ctx, nonExistentID)
-		require.ErrorIs(t, err, domain.NotFoundError)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 }
 
@@ -362,7 +362,7 @@ func TestPostgresStockRepository_IncreaseQuantity(t *testing.T) {
 		nonExistentID := uuid.New().String()
 
 		err := repo.IncreaseQuantity(ctx, nonExistentID, 10)
-		require.ErrorIs(t, err, domain.NotFoundError)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 }
 
@@ -461,7 +461,7 @@ func TestPostgresStockRepository_DecreaseQuantity(t *testing.T) {
 		nonExistentID := uuid.New().String()
 
 		err := repo.DecreaseQuantity(ctx, nonExistentID, 10)
-		require.ErrorIs(t, err, domain.NotFoundError)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 
 	t.Run("error - insufficient stock", func(t *testing.T) {
@@ -471,7 +471,7 @@ func TestPostgresStockRepository_DecreaseQuantity(t *testing.T) {
 		createTestStock(t, ctx, repo, productID, 30)
 
 		err := repo.DecreaseQuantity(ctx, productID, 50)
-		require.ErrorIs(t, err, domain.InsufficientStockError)
+		require.ErrorIs(t, err, domain.ErrInsufficientStock)
 	})
 
 	t.Run("error - cannot decrease from zero", func(t *testing.T) {
@@ -481,6 +481,6 @@ func TestPostgresStockRepository_DecreaseQuantity(t *testing.T) {
 		createTestStock(t, ctx, repo, productID, 0)
 
 		err := repo.DecreaseQuantity(ctx, productID, 1)
-		require.ErrorIs(t, err, domain.InsufficientStockError)
+		require.ErrorIs(t, err, domain.ErrInsufficientStock)
 	})
 }

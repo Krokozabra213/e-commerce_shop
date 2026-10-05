@@ -13,7 +13,6 @@ import (
 // NewClient создаёт Redis-клиент. Вызывающий код обязан вызвать Close()
 // при остановке приложения, чтобы освободить соединения.
 func NewClient(cfg infracfg.RedisConfig, log *slog.Logger) (redis.UniversalClient, error) {
-
 	rdb := redis.NewUniversalClient(&redis.UniversalOptions{
 		Addrs:    cfg.Addrs(),
 		Password: cfg.Password,

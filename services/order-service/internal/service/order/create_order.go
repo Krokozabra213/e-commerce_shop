@@ -18,7 +18,6 @@ import (
 const maxPrice = 1_000_000_000_000
 
 func (s *OrderService) CreateOrder(ctx context.Context, input svcDTO.CreateOrderInput) (*svcDTO.CreateOrderOutput, error) {
-
 	productIDs := extractProductIDs(input.Items)
 	productPrices, err := s.productSvc.GetPrices(ctx, productIDs)
 	if err != nil {

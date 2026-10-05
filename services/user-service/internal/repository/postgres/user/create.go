@@ -51,7 +51,7 @@ func (r *PostgresUserRepository) Create(ctx context.Context, user *domain.User) 
 	_, err := querier.Exec(ctx, query, args)
 	if err != nil {
 		if postgres.IsUniqueViolation(err) {
-			return domain.AlreadyExistsError
+			return domain.ErrAlreadyExists
 		}
 		return fmt.Errorf("insert user: %w", err)
 	}

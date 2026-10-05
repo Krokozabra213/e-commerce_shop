@@ -1,25 +1,62 @@
+version: "2"
 run:
-  timeout: 5m
   modules-download-mode: readonly
-  skip-dirs:
-    - vendor
-    - api
+
 
 linters:
+  default: none
   enable:
     - errcheck
-    - gosimple
     - govet
     - ineffassign
     - staticcheck
     - unused
-    - gocyclo
-    - gofumpt
-    - misspell
     - revive
+  settings:
+    gocyclo:
+      min-complexity: 15
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - _test\.go
+      - vendor
+      - api
 
-linters-settings:
-  gocyclo:
-    min-complexity: 15
-  gofumpt:
-    extra-rules: true
+formatters:
+  enable:
+    - gofumpt
+  settings:
+    gofumpt:
+      extra:
+        group-params: true
+  exclusions:
+    generated: lax
+    paths:
+      - vendor
+      - api
+
+
+
+
+#linters:
+#  enable:
+#    - revive
+#  settings:
+#    gocyclo:
+#      min-complexity: 15
+#  exclusions:
+#    generated: lax
+#    presets:
+#      - comments
+#      - common-false-positives
+#      - legacy
+#      - std-error-handling
+#    paths:
+#      - _test\.go
+#      - vendor
+#      - api

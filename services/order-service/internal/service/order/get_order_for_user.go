@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func (s *OrderService) GetOrderForUser(ctx context.Context, orderID uuid.UUID, currentUserID uuid.UUID, isAdmin bool) (*domain.Order, error) {
+func (s *OrderService) GetOrderForUser(ctx context.Context, orderID, currentUserID uuid.UUID, isAdmin bool) (*domain.Order, error) {
 	order, err := s.orderRepo.GetByID(ctx, orderID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {

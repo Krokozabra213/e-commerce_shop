@@ -34,7 +34,7 @@ func (r *PostgresUserRepository) GetByEmail(ctx context.Context, email string) (
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.NotFoundError
+			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("scan user by email: %w", err)
 	}

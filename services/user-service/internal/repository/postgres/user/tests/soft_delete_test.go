@@ -28,7 +28,7 @@ func TestPostgresUserRepository_SoftDelete(t *testing.T) {
 		require.NoError(t, err)
 
 		_, err = repo.GetByID(ctx, user.ID)
-		require.ErrorIs(t, err, domain.NotFoundError)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 
 		var deletedAt *time.Time
 		err = testDB.Pool.QueryRow(ctx,
@@ -79,7 +79,7 @@ func TestPostgresUserRepository_SoftDelete(t *testing.T) {
 		defer truncateAll(t)
 
 		err := repo.SoftDelete(ctx, uuid.New())
-		require.ErrorIs(t, err, domain.NotFoundError)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 
 	t.Run("error - deleting already-deleted user returns ErrNotFound", func(t *testing.T) {
@@ -90,7 +90,7 @@ func TestPostgresUserRepository_SoftDelete(t *testing.T) {
 		require.NoError(t, repo.SoftDelete(ctx, user.ID))
 
 		err := repo.SoftDelete(ctx, user.ID)
-		require.ErrorIs(t, err, domain.NotFoundError)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 
 	t.Run("success - deletes within transaction and commits", func(t *testing.T) {
@@ -110,7 +110,7 @@ func TestPostgresUserRepository_SoftDelete(t *testing.T) {
 		require.NoError(t, tx.Commit(ctx))
 
 		_, err = repo.GetByID(ctx, user.ID)
-		require.ErrorIs(t, err, domain.NotFoundError)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 
 	t.Run("success - rollback in transaction cancels soft delete", func(t *testing.T) {

@@ -19,6 +19,7 @@ import (
 	inframiddleware "github.com/Krokozabra213/e-commerce_shop/infra/middleware"
 	"github.com/Krokozabra213/e-commerce_shop/infra/ratelimit"
 	infraredis "github.com/Krokozabra213/e-commerce_shop/infra/redis"
+	"github.com/Krokozabra213/e-commerce_shop/infra/telemetry"
 	"github.com/Krokozabra213/e-commerce_shop/services/api-gateway/internal/config"
 	"github.com/Krokozabra213/e-commerce_shop/services/api-gateway/internal/handler/auth"
 	"github.com/Krokozabra213/e-commerce_shop/services/api-gateway/internal/handler/inventory"
@@ -47,7 +48,15 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	log := logger.Init(&cfg.Logger)
+	openTelemetry, err := telemetry.Setup(ctx, cfg.Telemetry, cfg.Logger.Level)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = openTelemetry.Shutdown(ctx)
+	}()
+
+	log := logger.Init(&cfg.Logger, openTelemetry.Handler)
 
 	redis, err := infraredis.NewClient(cfg.Redis, log)
 	if err != nil {

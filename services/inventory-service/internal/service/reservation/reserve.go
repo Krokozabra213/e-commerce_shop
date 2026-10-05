@@ -16,7 +16,6 @@ import (
 )
 
 func (s *ReservationService) Reserve(ctx context.Context, input service.ReserveInput) error {
-
 	sort.Slice(input.Items, func(i, j int) bool {
 		return input.Items[i].ProductID < input.Items[j].ProductID
 	})
@@ -40,10 +39,10 @@ func (s *ReservationService) Reserve(ctx context.Context, input service.ReserveI
 		for _, item := range input.Items {
 			err := s.stockRepo.DecreaseQuantity(ctx, item.ProductID, item.Quantity)
 			if err != nil {
-				if errors.Is(err, domain.InsufficientStockError) {
+				if errors.Is(err, domain.ErrInsufficientStock) {
 					return apperror.NewAppErr(apperror.CodeConflict, "stockRepo.DecreaseQuantity", "не хватает товара", err, apperror.LevelDebug, nil)
 				}
-				if errors.Is(err, domain.NotFoundError) {
+				if errors.Is(err, domain.ErrNotFound) {
 					return apperror.NewAppErr(apperror.CodeBadRequest, "stockRepo.DecreaseQuantity", "товар не найден", err, apperror.LevelDebug, nil)
 				}
 				return apperror.NewInternal("stockRepo.DecreaseQuantity", err, "Что-то пошло не так", nil)
@@ -74,14 +73,14 @@ func (s *ReservationService) Reserve(ctx context.Context, input service.ReserveI
 	}
 
 	failedReason := domain.ReservationFailedReasonInternal
-	if errors.Is(reserveErr, domain.InsufficientStockError) {
+	if errors.Is(reserveErr, domain.ErrInsufficientStock) {
 		failedReason = domain.ReservationFailedReasonInsufficientStock
-	} else if errors.Is(reserveErr, domain.NotFoundError) {
+	} else if errors.Is(reserveErr, domain.ErrNotFound) {
 		failedReason = domain.ReservationFailedReasonNotFound
 	}
 
 	if err := s.publishReserveFailed(ctx, input, failedReason.String()); err != nil {
-		if errors.Is(err, domain.AlreadyExistsError) {
+		if errors.Is(err, domain.ErrAlreadyExists) {
 			return nil
 		}
 		return fmt.Errorf("reserve failed and outbox write failed: reserve=%w, outbox=%v", reserveErr, err)

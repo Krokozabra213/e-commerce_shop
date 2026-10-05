@@ -16,6 +16,7 @@ import (
 	"github.com/Krokozabra213/e-commerce_shop/infra/logger"
 	inframiddleware "github.com/Krokozabra213/e-commerce_shop/infra/middleware"
 	"github.com/Krokozabra213/e-commerce_shop/infra/postgres"
+	"github.com/Krokozabra213/e-commerce_shop/infra/telemetry"
 	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/user-service/internal/config"
 	"github.com/Krokozabra213/e-commerce_shop/services/user-service/internal/handler"
@@ -41,7 +42,15 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	log := logger.Init(&cfg.Logger)
+	openTelemetry, err := telemetry.Setup(ctx, cfg.Telemetry, cfg.Logger.Level)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = openTelemetry.Shutdown(ctx)
+	}()
+
+	log := logger.Init(&cfg.Logger, openTelemetry.Handler)
 
 	pool, err := postgres.NewPostgresClient(&cfg.Postgres)
 	if err != nil {
@@ -77,7 +86,7 @@ func run() error {
 
 	handler.RegisterRoutes(server.App, userRepository)
 
-	healthHandler := health.NewHealthHandler(pool, dlqProducer, kafkaConsumer, schemaRegistry)
+	healthHandler := health.NewHandler(pool, dlqProducer, kafkaConsumer, schemaRegistry)
 	healthHandler.RegisterRoutes(server.App)
 
 	errCh := make(chan error, 2)

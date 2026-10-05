@@ -45,14 +45,14 @@ func (h *ErrorHandlerMiddleware) handleFiberError(ctx fiber.Ctx, err *fiber.Erro
 	logger := h.loggerFor(ctx)
 
 	if err.Code >= http.StatusInternalServerError {
-		logger.Error("fiber error",
+		logger.ErrorContext(ctx.Context(), "fiber error",
 			slog.Int("status", err.Code),
 			slog.String("message", err.Message),
 			slog.String("path", ctx.Path()),
 			slog.String("method", ctx.Method()),
 		)
 	} else {
-		logger.Info("fiber error",
+		logger.InfoContext(ctx.Context(), "fiber error",
 			slog.Int("status", err.Code),
 			slog.String("message", err.Message),
 			slog.String("path", ctx.Path()),
@@ -106,7 +106,7 @@ func (h *ErrorHandlerMiddleware) handleAppError(ctx fiber.Ctx, appErr *apperror.
 func (h *ErrorHandlerMiddleware) handleUnknownError(ctx fiber.Ctx, err error) error {
 	logger := h.loggerFor(ctx)
 
-	logger.Error("unhandled error",
+	logger.ErrorContext(ctx.Context(), "unhandled error",
 		slog.String("path", ctx.Path()),
 		slog.String("method", ctx.Method()),
 		slog.Any("error", err),

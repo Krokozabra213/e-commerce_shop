@@ -78,7 +78,7 @@ func TestService_VerifyEmail(t *testing.T) {
 
 		s.emailVerificationRepo.EXPECT().
 			GetByTokenHashForUpdate(gomock.Any(), hashedToken).
-			Return(nil, domain.NotFoundError)
+			Return(nil, domain.ErrNotFound)
 
 		err := s.svc.VerifyEmail(ctx, input)
 

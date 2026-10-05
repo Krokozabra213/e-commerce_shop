@@ -28,7 +28,6 @@ func (h *ProductHandler) GetPricesByProductIDs(
 	ctx context.Context,
 	req *productv1.GetPricesByProductIDsRequest,
 ) (*productv1.GetPricesByProductIDsResponse, error) {
-
 	if len(req.GetProductIds()) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "product_ids не может быть пустым")
 	}

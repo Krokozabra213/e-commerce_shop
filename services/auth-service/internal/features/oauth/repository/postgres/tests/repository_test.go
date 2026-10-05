@@ -210,7 +210,7 @@ func TestPostgresOAuthRepository_Create(t *testing.T) {
 
 		err = oauthRepository.Create(ctx, account2)
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, domain.AlreadyExistsError))
+		assert.True(t, errors.Is(err, domain.ErrAlreadyExists))
 	})
 
 	t.Run("error - duplicate oauth account id", func(t *testing.T) {
@@ -242,7 +242,7 @@ func TestPostgresOAuthRepository_Create(t *testing.T) {
 
 		err = oauthRepository.Create(ctx, account2)
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, domain.AlreadyExistsError))
+		assert.True(t, errors.Is(err, domain.ErrAlreadyExists))
 	})
 
 	t.Run("error - non-existent user_id", func(t *testing.T) {
@@ -298,7 +298,7 @@ func TestPostgresOAuthRepository_Create(t *testing.T) {
 
 		found, err := oauthRepository.GetByProviderAndProviderUserID(ctx, domain.OAuthProviderGoogle, "google-rollback")
 		assert.Error(t, err)
-		assert.True(t, errors.Is(err, domain.NotFoundError))
+		assert.True(t, errors.Is(err, domain.ErrNotFound))
 		assert.Nil(t, found)
 	})
 
@@ -354,7 +354,7 @@ func TestPostgresOAuthRepository_Create(t *testing.T) {
 
 		found, err := oauthRepository.GetByProviderAndProviderUserID(ctx, domain.OAuthProviderGoogle, "google-cascade")
 		assert.Error(t, err)
-		assert.True(t, errors.Is(err, domain.NotFoundError))
+		assert.True(t, errors.Is(err, domain.ErrNotFound))
 		assert.Nil(t, found)
 	})
 }
@@ -440,7 +440,7 @@ func TestPostgresOAuthRepository_GetByProviderAndProviderUserID(t *testing.T) {
 
 		found, err := oauthRepository.GetByProviderAndProviderUserID(ctx, domain.OAuthProviderGoogle, "nonexistent")
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, domain.NotFoundError))
+		assert.True(t, errors.Is(err, domain.ErrNotFound))
 		assert.Nil(t, found)
 	})
 
@@ -462,7 +462,7 @@ func TestPostgresOAuthRepository_GetByProviderAndProviderUserID(t *testing.T) {
 
 		found, err := oauthRepository.GetByProviderAndProviderUserID(ctx, domain.OAuthProviderGithub, "google-wrong-provider")
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, domain.NotFoundError))
+		assert.True(t, errors.Is(err, domain.ErrNotFound))
 		assert.Nil(t, found)
 	})
 
@@ -484,7 +484,7 @@ func TestPostgresOAuthRepository_GetByProviderAndProviderUserID(t *testing.T) {
 
 		found, err := oauthRepository.GetByProviderAndProviderUserID(ctx, domain.OAuthProviderGoogle, "google-wrong-id")
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, domain.NotFoundError))
+		assert.True(t, errors.Is(err, domain.ErrNotFound))
 		assert.Nil(t, found)
 	})
 
@@ -566,7 +566,7 @@ func TestPostgresOAuthRepository_GetByProviderAndProviderUserID(t *testing.T) {
 
 		found, err := oauthRepository.GetByProviderAndProviderUserID(ctx, domain.OAuthProviderGoogle, "google-uncommitted")
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, domain.NotFoundError))
+		assert.True(t, errors.Is(err, domain.ErrNotFound))
 		assert.Nil(t, found)
 	})
 

@@ -29,7 +29,7 @@ func (r *PostgresUserRepository) RemoveRole(ctx context.Context, userID uuid.UUI
 		return fmt.Errorf("remove role: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return domain.NotFoundError
+		return domain.ErrNotFound
 	}
 
 	return nil

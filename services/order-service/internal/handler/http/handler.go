@@ -15,7 +15,7 @@ import (
 
 type OrderService interface {
 	CreateOrder(ctx context.Context, input svcDTO.CreateOrderInput) (*svcDTO.CreateOrderOutput, error)
-	GetOrderForUser(ctx context.Context, orderID uuid.UUID, currentUserID uuid.UUID, isAdmin bool) (*domain.Order, error)
+	GetOrderForUser(ctx context.Context, orderID, currentUserID uuid.UUID, isAdmin bool) (*domain.Order, error)
 	GetUserOrders(ctx context.Context, currentUserID uuid.UUID) ([]domain.Order, error)
 
 	// Админ-действия

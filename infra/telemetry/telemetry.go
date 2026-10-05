@@ -5,11 +5,11 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"time"
 
+	infracfg "github.com/Krokozabra213/e-commerce_shop/infra/config"
 	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -36,7 +36,7 @@ type Telemetry struct {
 }
 
 func (t *Telemetry) Shutdown(ctx context.Context) error {
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 
 	var errs []error
@@ -58,25 +58,31 @@ func (t *Telemetry) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func Setup(ctx context.Context, cfg Config) (*Telemetry, error) {
+func Setup(ctx context.Context, cfg infracfg.TelemetryConfig, logLvl string) (*Telemetry, error) {
+	logLevel := parseLevel(logLvl)
+
 	t := &Telemetry{}
 
-	if !cfg.Logs && !cfg.Metrics && !cfg.Traces {
-		t.Handler = slog.NewTextHandler(io.Discard, nil)
+	if !cfg.Enabled {
+		t.Handler = newStdoutHandler(logLevel)
 		return t, nil
 	}
 
-	if cfg.TraceSampleRate < 0 || cfg.TraceSampleRate > 1.0 {
-		return nil, fmt.Errorf("telemetry: traceSampleRate must be 0.0-1.0, got %f", cfg.TraceSampleRate)
+	if !cfg.Logs && !cfg.Metrics && !cfg.Traces {
+		t.Handler = newStdoutHandler(logLevel)
+		return t, nil
 	}
-	if cfg.TraceSampleRate == 0 {
-		cfg.TraceSampleRate = 1.0
+
+	if cfg.TracesSampleRate < 0 || cfg.TracesSampleRate > 1.0 {
+		return nil, fmt.Errorf("telemetry: traceSampleRate must be 0.0-1.0, got %f", cfg.TracesSampleRate)
+	}
+	if cfg.TracesSampleRate == 0 {
+		cfg.TracesSampleRate = 1.0
 	}
 
 	res, err := resource.Merge(
 		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
+		resource.NewSchemaless(
 			semconv.ServiceName(cfg.ServiceName),
 			semconv.ServiceVersion(cfg.ServiceVersion),
 			attribute.String("deployment.environment", cfg.Environment),
@@ -94,7 +100,7 @@ func Setup(ctx context.Context, cfg Config) (*Telemetry, error) {
 	}
 
 	conn, err := grpc.NewClient(
-		cfg.OTELEndpoint,
+		cfg.EndPoint,
 		grpc.WithTransportCredentials(transportCreds),
 	)
 	if err != nil {
@@ -103,7 +109,7 @@ func Setup(ctx context.Context, cfg Config) (*Telemetry, error) {
 	t.conn = conn
 
 	if cfg.Traces {
-		shutdown, err := setupTraces(ctx, res, conn, cfg.TraceSampleRate)
+		shutdown, err := setupTraces(ctx, res, conn, cfg.TracesSampleRate)
 		if err != nil {
 			return nil, fmt.Errorf("telemetry: traces: %w", err)
 		}
@@ -119,7 +125,7 @@ func Setup(ctx context.Context, cfg Config) (*Telemetry, error) {
 	}
 
 	if cfg.Logs {
-		handler, shutdown, err := setupLogs(ctx, res, conn, cfg)
+		handler, shutdown, err := setupLogs(ctx, res, conn, cfg, logLevel)
 		if err != nil {
 			return nil, fmt.Errorf("telemetry: logs: %w", err)
 		}
@@ -128,9 +134,7 @@ func Setup(ctx context.Context, cfg Config) (*Telemetry, error) {
 	}
 
 	if t.Handler == nil {
-		t.Handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
-		})
+		t.Handler = newStdoutHandler(logLevel)
 	}
 
 	return t, nil
@@ -149,14 +153,9 @@ func setupTraces(
 		return nil, fmt.Errorf("failed to create exporter: %w", err)
 	}
 
-	var sampler sdktrace.Sampler
-	if sampleRate >= 1.0 {
-		sampler = sdktrace.AlwaysSample()
-	} else {
-		sampler = sdktrace.ParentBased(
-			sdktrace.TraceIDRatioBased(sampleRate),
-		)
-	}
+	sampler := sdktrace.ParentBased(
+		sdktrace.TraceIDRatioBased(sampleRate),
+	)
 
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
@@ -202,7 +201,8 @@ func setupLogs(
 	ctx context.Context,
 	res *resource.Resource,
 	conn *grpc.ClientConn,
-	cfg Config,
+	cfg infracfg.TelemetryConfig,
+	logLevel slog.Level,
 ) (slog.Handler, func(context.Context) error, error) {
 	exporter, err := otlploggrpc.New(ctx,
 		otlploggrpc.WithGRPCConn(conn),
@@ -223,11 +223,7 @@ func setupLogs(
 	)
 
 	if cfg.SampleLogs {
-		minLevel := cfg.UnsampledLogLevel
-		if minLevel == 0 {
-			minLevel = slog.LevelError
-		}
-		otelHandler = newSampledLogHandler(otelHandler, minLevel)
+		otelHandler = newSampledLogHandler(otelHandler, logLevel)
 	}
 
 	var handler slog.Handler
@@ -236,7 +232,7 @@ func setupLogs(
 		stdoutHandler := slog.NewJSONHandler(
 			os.Stdout,
 			&slog.HandlerOptions{
-				Level:     cfg.StdoutLogLevel,
+				Level:     logLevel,
 				AddSource: true,
 			},
 		)
@@ -244,7 +240,6 @@ func setupLogs(
 			handlers: []slog.Handler{stdoutHandler, otelHandler},
 		}
 	} else {
-
 		handler = otelHandler
 	}
 
@@ -258,4 +253,24 @@ func HandleError(span trace.Span, desc string, err error) {
 
 func MergeAttrs(base []attribute.KeyValue, extra ...attribute.KeyValue) []attribute.KeyValue {
 	return append(base, extra...)
+}
+
+func newStdoutHandler(level slog.Level) slog.Handler {
+	return slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level:     level,
+		AddSource: true,
+	})
+}
+
+func parseLevel(s string) slog.Level {
+	switch s {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }

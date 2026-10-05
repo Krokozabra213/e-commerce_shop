@@ -72,7 +72,7 @@ func TestPostgresUserRepository_AddRole(t *testing.T) {
 		require.NoError(t, repo.AddRole(ctx, user.ID, domain.RoleUser))
 
 		err := repo.AddRole(ctx, user.ID, domain.RoleUser)
-		require.ErrorIs(t, err, domain.AlreadyExistsError)
+		require.ErrorIs(t, err, domain.ErrAlreadyExists)
 	})
 
 	t.Run("error - non-existent user_id returns ErrNotFound (FK violation)", func(t *testing.T) {
@@ -80,7 +80,7 @@ func TestPostgresUserRepository_AddRole(t *testing.T) {
 
 		fakeUserID := uuid.New()
 		err := repo.AddRole(ctx, fakeUserID, domain.RoleUser)
-		require.ErrorIs(t, err, domain.NotFoundError)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 
 	t.Run("error - invalid role rejected by CHECK constraint", func(t *testing.T) {
@@ -90,8 +90,8 @@ func TestPostgresUserRepository_AddRole(t *testing.T) {
 
 		err := repo.AddRole(ctx, user.ID, domain.Role("ROLE_SUPERADMIN"))
 		require.Error(t, err)
-		assert.NotErrorIs(t, err, domain.AlreadyExistsError)
-		assert.NotErrorIs(t, err, domain.NotFoundError)
+		assert.NotErrorIs(t, err, domain.ErrAlreadyExists)
+		assert.NotErrorIs(t, err, domain.ErrNotFound)
 	})
 
 	t.Run("success - adds role within transaction and commits", func(t *testing.T) {

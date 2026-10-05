@@ -54,25 +54,25 @@ func ParseListProductsParams(c fiber.Ctx) (*generated.ListProductsParams, error)
 	}
 
 	if v := c.Query("price_min"); v != "" {
-		min, err := strconv.ParseInt(v, 10, 64)
+		minPrice, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("invalid price_min: %q (must be integer)", v)
 		}
-		if min < 0 {
+		if minPrice < 0 {
 			return nil, errors.New("price_min must be non-negative")
 		}
-		p.PriceMin = &min
+		p.PriceMin = &minPrice
 	}
 
 	if v := c.Query("price_max"); v != "" {
-		max, err := strconv.ParseInt(v, 10, 64)
+		maxPrice, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("invalid price_max: %q (must be integer)", v)
 		}
-		if max < 0 {
+		if maxPrice < 0 {
 			return nil, errors.New("price_max must be non-negative")
 		}
-		p.PriceMax = &max
+		p.PriceMax = &maxPrice
 	}
 
 	if p.PriceMin != nil && p.PriceMax != nil && *p.PriceMin > *p.PriceMax {

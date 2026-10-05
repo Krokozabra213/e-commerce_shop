@@ -17,12 +17,11 @@ func (s *Service) CreateFromEvent(
 	roles []string,
 	createdAt time.Time,
 ) error {
-
 	_, err := s.repo.GetByID(ctx, userID)
 	if err == nil {
 		return nil
 	}
-	if !errors.Is(err, domain.NotFoundError) {
+	if !errors.Is(err, domain.ErrNotFound) {
 		return fmt.Errorf("check user existence: %w", err)
 	}
 
@@ -34,7 +33,7 @@ func (s *Service) CreateFromEvent(
 
 	err = s.txManager.WithinTransaction(ctx, func(ctx context.Context) error {
 		if err := s.repo.Create(ctx, user); err != nil {
-			if errors.Is(err, domain.AlreadyExistsError) {
+			if errors.Is(err, domain.ErrAlreadyExists) {
 				return nil
 			}
 			return fmt.Errorf("create user: %w", err)
@@ -47,7 +46,7 @@ func (s *Service) CreateFromEvent(
 			}
 
 			if err := s.repo.AddRole(ctx, userID, role); err != nil {
-				if errors.Is(err, domain.AlreadyExistsError) {
+				if errors.Is(err, domain.ErrAlreadyExists) {
 					continue
 				}
 				return fmt.Errorf("add role %s: %w", r, err)
@@ -56,7 +55,6 @@ func (s *Service) CreateFromEvent(
 
 		return nil
 	})
-
 	if err != nil {
 		return err
 	}

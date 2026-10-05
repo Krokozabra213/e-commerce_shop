@@ -96,7 +96,7 @@ func TestReservationService_Reserve(t *testing.T) {
 
 		s.stockRepo.EXPECT().
 			DecreaseQuantity(gomock.Any(), gomock.Any(), gomock.Any()).
-			Return(domain.InsufficientStockError)
+			Return(domain.ErrInsufficientStock)
 
 		// Ожидаем публикацию события о неудаче ВНЕ транзакции
 		s.outboxRepo.EXPECT().
@@ -126,12 +126,12 @@ func TestReservationService_Reserve(t *testing.T) {
 		s.locker.EXPECT().LockByUUID(gomock.Any(), orderID).Return(nil)
 		s.reservationRepo.EXPECT().ExistsByOrderID(gomock.Any(), orderID).Return(false, nil)
 		s.stockRepo.EXPECT().DecreaseQuantity(gomock.Any(), gomock.Any(), gomock.Any()).
-			Return(domain.InsufficientStockError)
+			Return(domain.ErrInsufficientStock)
 
 		// Публикация failure события ВНЕ транзакции
 		s.outboxRepo.EXPECT().
 			Create(gomock.Any(), gomock.Any()).
-			Return(domain.AlreadyExistsError)
+			Return(domain.ErrAlreadyExists)
 
 		err := s.svc.Reserve(ctx, input)
 
@@ -293,7 +293,7 @@ func TestReservationService_Reserve(t *testing.T) {
 		s.locker.EXPECT().LockByUUID(gomock.Any(), orderID).Return(nil)
 		s.reservationRepo.EXPECT().ExistsByOrderID(gomock.Any(), orderID).Return(false, nil)
 		s.stockRepo.EXPECT().DecreaseQuantity(gomock.Any(), gomock.Any(), gomock.Any()).
-			Return(domain.InsufficientStockError)
+			Return(domain.ErrInsufficientStock)
 
 		outboxErr := errors.New("outbox error")
 		s.outboxRepo.EXPECT().

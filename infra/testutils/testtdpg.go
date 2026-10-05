@@ -64,7 +64,7 @@ func SetupTestDatabaseShared(ctx context.Context) (*TestDatabase, error) {
 	}, nil
 }
 
-func RunMigrationsCtx(ctx context.Context, connStr string, migrationsFS fs.FS) error {
+func RunMigrationsCtx(_ context.Context, connStr string, migrationsFS fs.FS) error {
 	goose.SetBaseFS(migrationsFS)
 	if err := goose.SetDialect("postgres"); err != nil {
 		return fmt.Errorf("failed to set goose dialect: %w", err)
@@ -92,7 +92,7 @@ func TruncateTablesCtx(ctx context.Context, pool *pgxpool.Pool, tables ...string
 	return nil
 }
 
-func ResetMigrationsCtx(ctx context.Context, connStr string, migrationsFS fs.FS) error {
+func ResetMigrationsCtx(_ context.Context, connStr string, migrationsFS fs.FS) error {
 	goose.SetBaseFS(migrationsFS)
 	if err := goose.SetDialect("postgres"); err != nil {
 		return fmt.Errorf("failed to set goose dialect: %w", err)

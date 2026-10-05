@@ -20,3 +20,6 @@ slog:
 mongo:
   database: products
   appName: product-service
+
+telemetry:
+  enabled: false

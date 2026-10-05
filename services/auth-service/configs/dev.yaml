@@ -39,3 +39,6 @@ kafka_producer:
 
 schema_registry:
   url: "http://schema-registry:8081"
+
+telemetry:
+  enabled: false

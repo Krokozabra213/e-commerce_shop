@@ -12,10 +12,9 @@ import (
 )
 
 func (s *Service) Login(ctx context.Context, input LoginInput) (*LoginOutput, error) {
-
 	user, err := s.userRepo.GetByEmail(ctx, input.Email)
 	if err != nil {
-		if errors.Is(err, domain.NotFoundError) {
+		if errors.Is(err, domain.ErrNotFound) {
 			return nil, apperror.NewBusiness(apperror.CodeUnauthorized, "Пользователя с таким email или паролем не существует")
 		}
 		return nil, fmt.Errorf("get user: %w", err)

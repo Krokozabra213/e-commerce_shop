@@ -29,7 +29,7 @@ func TestService_Refresh(t *testing.T) {
 	newTokenHash := "hash-of-new-token"
 
 	validClaims := &jwtmanager.RefreshClaims{
-		jwt.RegisteredClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: userID.String(),
 		},
 	}
@@ -91,7 +91,7 @@ func TestService_Refresh(t *testing.T) {
 
 			s.refreshTokenRepo.EXPECT().
 				Create(gomock.Any(), gomock.Any()).
-				DoAndReturn(func(ctx context.Context, token *domain.RefreshToken) error {
+				DoAndReturn(func(_ context.Context, token *domain.RefreshToken) error {
 					createdToken = token
 
 					assert.NotEqual(t, uuid.Nil, token.ID)
@@ -143,7 +143,7 @@ func TestService_Refresh(t *testing.T) {
 		ctx := context.Background()
 
 		badClaims := &jwtmanager.RefreshClaims{
-			jwt.RegisteredClaims{
+			RegisteredClaims: jwt.RegisteredClaims{
 				Subject: "not-a-uuid",
 			},
 		}
@@ -197,7 +197,7 @@ func TestService_Refresh(t *testing.T) {
 
 		s.refreshTokenRepo.EXPECT().
 			GetByTokenHashForUpdate(gomock.Any(), oldTokenHash).
-			Return(nil, domain.NotFoundError)
+			Return(nil, domain.ErrNotFound)
 
 		result, err := s.svc.Refresh(ctx, input)
 

@@ -6,6 +6,7 @@ import (
 
 	infracfg "github.com/Krokozabra213/e-commerce_shop/infra/config"
 	"github.com/go-playground/validator/v10"
+	fiberotel "github.com/gofiber/contrib/v3/otel"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/recover"
@@ -47,6 +48,9 @@ func NewFiberServer(cfg infracfg.HTTPConfig, logger *slog.Logger, errorHandler E
 		AllowCredentials: true,
 	}))
 	fiberApp.Use(recover.New())
+
+	fiberApp.Use(fiberotel.Middleware())
+
 	fiberApp.Use(requestid.New(requestid.Config{
 		Header: "X-Request-Id",
 		Generator: func() string {

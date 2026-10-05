@@ -30,7 +30,6 @@ func (h *Handler) VerifyEmail(c fiber.Ctx) error {
 	err := h.authService.VerifyEmail(c.Context(), authservice.VerifyEmailInput{
 		Token: token,
 	})
-
 	if err != nil {
 		return err
 	}

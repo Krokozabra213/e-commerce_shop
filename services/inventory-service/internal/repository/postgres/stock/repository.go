@@ -49,7 +49,7 @@ func (r *PostgresStockRepository) Create(ctx context.Context, stock *domain.Stoc
 	_, err := querier.Exec(ctx, query, args)
 	if err != nil {
 		if postgres.IsUniqueViolation(err) {
-			return domain.AlreadyExistsError
+			return domain.ErrAlreadyExists
 		}
 		return fmt.Errorf("insert stock: %w", err)
 	}
@@ -75,7 +75,7 @@ func (r *PostgresStockRepository) GetByProductID(ctx context.Context, productID 
 	stock, err := scanStock(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.NotFoundError
+			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("scan stock by product_id: %w", err)
 	}
@@ -164,10 +164,10 @@ func (r *PostgresStockRepository) DecreaseQuantity(
 		}
 
 		if !exists {
-			return domain.NotFoundError
+			return domain.ErrNotFound
 		}
 
-		return domain.InsufficientStockError
+		return domain.ErrInsufficientStock
 	}
 
 	return nil
@@ -200,7 +200,7 @@ func (r *PostgresStockRepository) IncreaseQuantity(
 	}
 
 	if tag.RowsAffected() == 0 {
-		return domain.NotFoundError
+		return domain.ErrNotFound
 	}
 
 	return nil

@@ -45,7 +45,7 @@ func (r *PostgresEmailVerificationRepository) Create(ctx context.Context, token 
 	_, err := querier.Exec(ctx, query, args)
 	if err != nil {
 		if postgres.IsUniqueViolation(err) {
-			return domain.AlreadyExistsError
+			return domain.ErrAlreadyExists
 		}
 		return fmt.Errorf("insert email verification token: %w", err)
 	}

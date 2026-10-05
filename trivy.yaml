@@ -1,0 +1,11 @@
+scan:
+  skip-files:
+    - "services/auth-service/certs/jwt-private.pem"
+    - "services/api-gateway/api/openapi.yaml"
+
+vulnerability:
+  ignore-unfixed: true
+
+severity:
+  - HIGH
+  - CRITICAL

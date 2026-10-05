@@ -33,7 +33,6 @@ type Dependencies struct {
 }
 
 func New(deps *Dependencies) *Module {
-
 	userRepository := userRepo.NewPostgresUserRepository(deps.PGXPool)
 	refreshTokenRepository := refreshtokenRepo.NewPostgresRefreshTokenRepository(deps.PGXPool)
 	emailVerificationRepository := emailverificationRepo.NewPostgresEmailVerificationRepository(deps.PGXPool)

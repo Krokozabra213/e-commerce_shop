@@ -27,7 +27,7 @@ type Producer interface {
 
 type SchemaSerializer interface {
 	Serialize(ctx context.Context, schemaID int, message proto.Message) ([]byte, error)
-	RegisterOrGetSchema(topic string, protoSchemaText string) (*srclient.Schema, error)
+	RegisterOrGetSchema(topic, protoSchemaText string) (*srclient.Schema, error)
 }
 
 type EventPublisher struct {

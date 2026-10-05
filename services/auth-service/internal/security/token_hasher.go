@@ -27,7 +27,7 @@ func (h *HashingService) Hash(value string) string {
 	return hex.EncodeToString(h.sum(value))
 }
 
-func (h *HashingService) Compare(inputToken string, storedHash string) (bool, error) {
+func (h *HashingService) Compare(inputToken, storedHash string) (bool, error) {
 	storedBytes, err := hex.DecodeString(storedHash)
 	if err != nil {
 		return false, fmt.Errorf("invalid stored hash: %w", err)

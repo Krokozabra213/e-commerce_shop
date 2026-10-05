@@ -33,7 +33,7 @@ func (r *PostgresUserRepository) SoftDelete(ctx context.Context, id uuid.UUID) e
 		return fmt.Errorf("soft delete user: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return domain.NotFoundError
+		return domain.ErrNotFound
 	}
 
 	return nil

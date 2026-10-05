@@ -6,6 +6,7 @@ import (
 
 	inventoryv1 "github.com/Krokozabra213/e-commerce_shop/api/gen/go/proto/inventory/v1"
 	inframiddleware "github.com/Krokozabra213/e-commerce_shop/infra/middleware"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -16,10 +17,11 @@ type InventoryClient struct {
 	conn *grpc.ClientConn
 }
 
-func NewInventoryClient(ctx context.Context, addr string) (*InventoryClient, error) {
+func NewInventoryClient(_ context.Context, addr string) (*InventoryClient, error) {
 	conn, err := grpc.NewClient(
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		grpc.WithUnaryInterceptor(inframiddleware.UnaryClientRequestIDInterceptor),
 	)
 	if err != nil {

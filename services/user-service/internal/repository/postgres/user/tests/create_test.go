@@ -97,7 +97,7 @@ func TestPostgresUserRepository_Create(t *testing.T) {
 		require.NoError(t, tx.Rollback(ctx))
 
 		_, err = repo.GetByID(ctx, user.ID)
-		require.ErrorIs(t, err, domain.NotFoundError)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 
 	t.Run("error - duplicate id returns AlreadyExists", func(t *testing.T) {
@@ -109,7 +109,7 @@ func TestPostgresUserRepository_Create(t *testing.T) {
 		duplicate.ID = user.ID
 
 		err := repo.Create(ctx, duplicate)
-		require.ErrorIs(t, err, domain.AlreadyExistsError)
+		require.ErrorIs(t, err, domain.ErrAlreadyExists)
 	})
 
 	t.Run("error - duplicate email returns AlreadyExists", func(t *testing.T) {
@@ -121,6 +121,6 @@ func TestPostgresUserRepository_Create(t *testing.T) {
 		duplicate.Email = user.Email
 
 		err := repo.Create(ctx, duplicate)
-		require.ErrorIs(t, err, domain.AlreadyExistsError)
+		require.ErrorIs(t, err, domain.ErrAlreadyExists)
 	})
 }

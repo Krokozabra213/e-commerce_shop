@@ -40,6 +40,7 @@ func (h *Handler) GetMyRoles(c fiber.Ctx) error {
 
 	roles, err := h.service.GetRoles(c.Context(), userID)
 	if err != nil {
+		return err
 	}
 	rolesStr := make([]string, 0, len(roles))
 	for _, role := range roles {

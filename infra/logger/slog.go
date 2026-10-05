@@ -56,8 +56,10 @@ func parseLevel(s string) slog.Level {
 	}
 }
 
-type ctxKey struct{}
-type requestIDKey struct{}
+type (
+	ctxKey       struct{}
+	requestIDKey struct{}
+)
 
 func WithLogger(ctx context.Context, log *slog.Logger) context.Context {
 	return context.WithValue(ctx, ctxKey{}, log)

@@ -16,7 +16,7 @@ type ProductClient struct {
 	conn *grpc.ClientConn
 }
 
-func NewProductClient(ctx context.Context, addr string) (*ProductClient, error) {
+func NewProductClient(_ context.Context, addr string) (*ProductClient, error) {
 	conn, err := grpc.NewClient(
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),

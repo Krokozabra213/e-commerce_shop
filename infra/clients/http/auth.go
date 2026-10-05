@@ -11,6 +11,7 @@ import (
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/apperror"
 	infracfg "github.com/Krokozabra213/e-commerce_shop/infra/config"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 type RegisterRequest struct {
@@ -82,10 +83,14 @@ func NewAuthClient(cfg infracfg.HTTPClientConfig) *AuthClient {
 	}
 
 	cfg.Addr = addr + "/"
+
+	baseTransport := WithRequestID(http.DefaultTransport)
+	instrumentedTransport := otelhttp.NewTransport(baseTransport)
+
 	return &AuthClient{
 		httpClient: &http.Client{
 			Timeout:   cfg.Timeout,
-			Transport: WithRequestID(nil),
+			Transport: instrumentedTransport,
 		},
 		config: cfg,
 	}
@@ -132,6 +137,7 @@ func (c *AuthClient) getJSON(ctx context.Context, op, path string, dst any) erro
 
 	return c.do(op, req, dst, http.StatusOK)
 }
+
 func (c *AuthClient) do(op string, req *http.Request, dst any, expectedStatus int) error {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

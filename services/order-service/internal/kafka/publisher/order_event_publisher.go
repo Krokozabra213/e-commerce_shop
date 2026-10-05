@@ -26,7 +26,7 @@ type Producer interface {
 
 type SchemaSerializer interface {
 	Serialize(ctx context.Context, schemaID int, message proto.Message) ([]byte, error)
-	RegisterOrGetSchema(topic string, protoSchemaText string) (*srclient.Schema, error)
+	RegisterOrGetSchema(topic, protoSchemaText string) (*srclient.Schema, error)
 }
 
 type OrderEventPublisher struct {
@@ -63,7 +63,6 @@ func (p *OrderEventPublisher) Publish(ctx context.Context, event *domain.OutboxE
 }
 
 func (p *OrderEventPublisher) publishOrderCreated(ctx context.Context, topic string, event *domain.OutboxEvent) error {
-
 	orderData, err := mapPayloadToOrderData(event.Payload)
 	if err != nil {
 		return fmt.Errorf("unmarshal order data: %w", err)
@@ -78,7 +77,6 @@ func (p *OrderEventPublisher) publishOrderCreated(ctx context.Context, topic str
 }
 
 func (p *OrderEventPublisher) publishPaymentChargeRequest(ctx context.Context, topic string, event *domain.OutboxEvent) error {
-
 	chargeData, err := mapPayloadToPaymentChargeData(event.Payload)
 	if err != nil {
 		return fmt.Errorf("unmarshal payment charge data: %w", err)
@@ -93,7 +91,6 @@ func (p *OrderEventPublisher) publishPaymentChargeRequest(ctx context.Context, t
 }
 
 func (p *OrderEventPublisher) publishOrderCancelled(ctx context.Context, topic string, event *domain.OutboxEvent) error {
-
 	cancellationData, err := mapPayloadToOrderCancellationData(event.Payload)
 	if err != nil {
 		return fmt.Errorf("unmarshal order cancellation data: %w", err)
@@ -144,7 +141,6 @@ func (p *OrderEventPublisher) produceEvent(
 }
 
 func mapPayloadToOrderData(payload map[string]any) (*eventsv1.OrderData, error) {
-
 	bytes, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal payload map: %w", err)

@@ -52,7 +52,7 @@ func TestPostgresUserRepository_RemoveRole(t *testing.T) {
 		user := createTestUser(t, ctx, repo)
 
 		err := repo.RemoveRole(ctx, user.ID, domain.RoleAdmin)
-		require.ErrorIs(t, err, domain.NotFoundError)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 
 	t.Run("error - removing role that user never had returns ErrRoleNotFound", func(t *testing.T) {
@@ -62,14 +62,14 @@ func TestPostgresUserRepository_RemoveRole(t *testing.T) {
 		require.NoError(t, repo.AddRole(ctx, user.ID, domain.RoleUser))
 
 		err := repo.RemoveRole(ctx, user.ID, domain.RoleAdmin)
-		require.ErrorIs(t, err, domain.NotFoundError)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 
 	t.Run("error - removing role from non-existent user returns ErrRoleNotFound", func(t *testing.T) {
 		defer truncateAll(t)
 
 		err := repo.RemoveRole(ctx, uuid.New(), domain.RoleUser)
-		require.ErrorIs(t, err, domain.NotFoundError)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 
 	t.Run("success - removing role does not affect other users", func(t *testing.T) {
@@ -136,6 +136,6 @@ func TestPostgresUserRepository_RemoveRole(t *testing.T) {
 		require.NoError(t, repo.RemoveRole(ctx, user.ID, domain.RoleUser))
 
 		err := repo.RemoveRole(ctx, user.ID, domain.RoleUser)
-		require.ErrorIs(t, err, domain.NotFoundError)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 }

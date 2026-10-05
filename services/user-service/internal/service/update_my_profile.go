@@ -16,7 +16,7 @@ func (s *Service) UpdateMyProfile(
 ) (*domain.User, error) {
 	user, err := s.repo.UpdateProfile(ctx, userID, input)
 	if err != nil {
-		if errors.Is(err, domain.NotFoundError) {
+		if errors.Is(err, domain.ErrNotFound) {
 			return nil, apperror.NewBusiness(apperror.CodeUnauthorized, "Пользователя с таким id не существует")
 		}
 	}

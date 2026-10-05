@@ -9,27 +9,26 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
-type HealthHandler struct {
+type Handler struct {
 	mongo *mongo.Client
 }
 
-func NewHealthHandler(mongo *mongo.Client) *HealthHandler {
-	return &HealthHandler{
+func NewHandler(mongo *mongo.Client) *Handler {
+	return &Handler{
 		mongo: mongo,
 	}
 }
 
-func (h *HealthHandler) RegisterRoutes(router fiber.Router) {
+func (h *Handler) RegisterRoutes(router fiber.Router) {
 	router.Get("/healthz", h.HealthCheck)
 	router.Get("/readyz", h.ReadyCheck)
 }
 
-func (h *HealthHandler) HealthCheck(c fiber.Ctx) error {
+func (h *Handler) HealthCheck(c fiber.Ctx) error {
 	return c.Status(http.StatusOK).JSON(fiber.Map{"status": "ready"})
 }
 
-func (h *HealthHandler) ReadyCheck(c fiber.Ctx) error {
-
+func (h *Handler) ReadyCheck(c fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(c.Context(), 3*time.Second)
 	defer cancel()
 

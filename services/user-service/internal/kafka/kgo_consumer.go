@@ -31,7 +31,6 @@ func NewKGOConsumer(
 	logger *slog.Logger,
 	dlq DLQ,
 ) (*KGOConsumer, error) {
-
 	offset := kgo.NewOffset().AtStart()
 	if !cfg.StartOffsetEarliest {
 		offset = kgo.NewOffset().AtEnd()
@@ -147,6 +146,6 @@ func (c *KGOConsumer) Close() {
 	c.logger.Info("kafka consumer closed")
 }
 
-func (d *KGOConsumer) Ping(ctx context.Context) error {
-	return d.client.Ping(ctx)
+func (c *KGOConsumer) Ping(ctx context.Context) error {
+	return c.client.Ping(ctx)
 }

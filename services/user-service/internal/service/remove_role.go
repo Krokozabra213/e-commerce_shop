@@ -11,10 +11,9 @@ import (
 )
 
 func (s *Service) RemoveRole(ctx context.Context, userID uuid.UUID, role domain.Role) error {
-
 	err := s.repo.RemoveRole(ctx, userID, role)
 	if err != nil {
-		if errors.Is(err, domain.NotFoundError) {
+		if errors.Is(err, domain.ErrNotFound) {
 			return apperror.NewBusiness(apperror.CodeBadRequest, "Пользователя с таким id или ролью не существует")
 		}
 		return fmt.Errorf("remove role: %w", err)

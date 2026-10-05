@@ -12,8 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type ErrorInterceptor struct {
-}
+type ErrorInterceptor struct{}
 
 func NewErrorInterceptor() *ErrorInterceptor {
 	return &ErrorInterceptor{}
@@ -44,7 +43,7 @@ func (i *ErrorInterceptor) handleError(ctx context.Context, err error, method st
 
 	var appErr *apperror.AppError
 	if !errors.As(err, &appErr) {
-		log.Error("internal server error",
+		log.ErrorContext(ctx, "internal server error",
 			slog.Any("error", err),
 			slog.String("method", method),
 		)

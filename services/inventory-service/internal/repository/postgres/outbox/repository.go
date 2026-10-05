@@ -59,7 +59,7 @@ func (r *PostgresOutboxRepository) Create(ctx context.Context, event *domain.Out
 	_, err := querier.Exec(ctx, query, args)
 	if err != nil {
 		if postgres.IsUniqueViolation(err) {
-			return domain.AlreadyExistsError
+			return domain.ErrAlreadyExists
 		}
 		return fmt.Errorf("insert outbox event: %w", err)
 	}
@@ -122,11 +122,11 @@ func (r *PostgresOutboxRepository) MarkPublished(ctx context.Context, ids []uuid
 	}
 
 	if tag.RowsAffected() == 0 {
-		return domain.NotFoundError
+		return domain.ErrNotFound
 	}
 
 	if tag.RowsAffected() != int64(len(ids)) {
-		return domain.NotFoundError
+		return domain.ErrNotFound
 	}
 
 	return nil

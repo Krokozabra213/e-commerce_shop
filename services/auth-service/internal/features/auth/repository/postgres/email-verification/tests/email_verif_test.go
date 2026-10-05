@@ -196,7 +196,7 @@ func TestPostgresemailverificationRepository_Create(t *testing.T) {
 		txCtx2 := tx_manager.CtxWithTx(ctx, tx2)
 
 		_, err = repo.GetByTokenHashForUpdate(txCtx2, token.TokenHash)
-		assert.True(t, errors.Is(err, domain.NotFoundError))
+		assert.True(t, errors.Is(err, domain.ErrNotFound))
 	})
 
 	t.Run("error - duplicate token_hash returns AlreadyExistsError", func(t *testing.T) {
@@ -226,7 +226,7 @@ func TestPostgresemailverificationRepository_Create(t *testing.T) {
 		}
 		err = repo.Create(ctx, token2)
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, domain.AlreadyExistsError))
+		assert.True(t, errors.Is(err, domain.ErrAlreadyExists))
 	})
 
 	t.Run("error - foreign key violation for non-existent user_id", func(t *testing.T) {
@@ -243,7 +243,7 @@ func TestPostgresemailverificationRepository_Create(t *testing.T) {
 
 		err := repo.Create(ctx, token)
 		require.Error(t, err)
-		assert.False(t, errors.Is(err, domain.AlreadyExistsError))
+		assert.False(t, errors.Is(err, domain.ErrAlreadyExists))
 	})
 }
 
@@ -349,7 +349,7 @@ func TestPostgresemailverificationRepository_GetByTokenHashForUpdate(t *testing.
 
 		_, err = repo.GetByTokenHashForUpdate(txCtx, "non-existent-hash")
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, domain.NotFoundError))
+		assert.True(t, errors.Is(err, domain.ErrNotFound))
 	})
 }
 
@@ -449,7 +449,7 @@ func TestPostgresemailverificationRepository_MarkAsUsed(t *testing.T) {
 
 		err := repo.MarkAsUsed(ctx, "non-existent-hash")
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, domain.NotFoundError))
+		assert.True(t, errors.Is(err, domain.ErrNotFound))
 	})
 
 	t.Run("idempotency - marking already used token does not error", func(t *testing.T) {

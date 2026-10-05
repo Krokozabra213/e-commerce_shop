@@ -64,14 +64,14 @@ func TestReservationService_Release(t *testing.T) {
 		increasedProducts := make(map[string]int)
 		s.stockRepo.EXPECT().
 			IncreaseQuantity(gomock.Any(), gomock.Any(), gomock.Any()).
-			DoAndReturn(func(ctx context.Context, productID string, quantity int) error {
+			DoAndReturn(func(_ context.Context, productID string, quantity int) error {
 				increasedProducts[productID] = quantity
 				return nil
 			}).Times(2)
 
 		s.reservationRepo.EXPECT().
 			ReleaseByOrderID(gomock.Any(), orderID).
-			DoAndReturn(func(ctx context.Context, oid uuid.UUID) (int, error) {
+			DoAndReturn(func(_ context.Context, _ uuid.UUID) (int, error) {
 				require.Len(t, increasedProducts, 2)
 				assert.Equal(t, 5, increasedProducts[productID1])
 				assert.Equal(t, 10, increasedProducts[productID2])
@@ -159,7 +159,7 @@ func TestReservationService_Release(t *testing.T) {
 		processedOrder := make([]string, 0)
 		s.stockRepo.EXPECT().
 			IncreaseQuantity(gomock.Any(), gomock.Any(), gomock.Any()).
-			DoAndReturn(func(ctx context.Context, productID string, quantity int) error {
+			DoAndReturn(func(_ context.Context, productID string, _ int) error {
 				processedOrder = append(processedOrder, productID)
 				return nil
 			}).Times(3)
@@ -387,7 +387,7 @@ func TestReservationService_Release(t *testing.T) {
 
 		s.stockRepo.EXPECT().
 			IncreaseQuantity(gomock.Any(), gomock.Any(), gomock.Any()).
-			DoAndReturn(func(ctx context.Context, productID string, quantity int) error {
+			DoAndReturn(func(_ context.Context, productID string, quantity int) error {
 				expected, exists := expectedQuantities[productID]
 				require.True(t, exists, "unexpected product ID: %s", productID)
 				assert.Equal(t, expected, quantity, "wrong quantity for product %s", productID)

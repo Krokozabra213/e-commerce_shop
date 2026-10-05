@@ -20,7 +20,7 @@ func (s *Service) SendVerificationEmail(ctx context.Context, input SendVerificat
 
 	user, err := s.userRepo.GetByID(ctx, input.UserID)
 	if err != nil {
-		if errors.Is(err, domain.NotFoundError) {
+		if errors.Is(err, domain.ErrNotFound) {
 			return apperror.NewBusiness(apperror.CodeNotFound, "Пользователь не найден")
 		}
 		return apperror.NewInternal("userRepo.GetByID", err, "Ошибка получения пользователя", nil)

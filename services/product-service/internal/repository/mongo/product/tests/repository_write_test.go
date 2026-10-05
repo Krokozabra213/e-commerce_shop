@@ -22,8 +22,10 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
-var testDB *testutils.TestMongoDB
-var productCounter int64
+var (
+	testDB         *testutils.TestMongoDB
+	productCounter int64
+)
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()

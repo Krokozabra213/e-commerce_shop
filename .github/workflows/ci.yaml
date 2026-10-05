@@ -1,50 +1,325 @@
+#name: CI
+#
+#on:
+#  push:
+#    branches: [main, master]
+#  pull_request:
+#    branches: [main, master]
+#  workflow_dispatch:
+#
+#concurrency:
+#  group: ci-${{ github.workflow }}-${{ github.ref }}
+#  cancel-in-progress: true
+#
+#permissions:
+#  contents: read
+#
+#env:
+#  GO_VERSION: "1.26.4"
+#
+#jobs:
+#  discover:
+#    name: Discover modules
+#    runs-on: ubuntu-latest
+#    outputs:
+#      modules: ${{ steps.collect.outputs.modules }}
+#      integration-modules: ${{ steps.collect.outputs.integration_modules }}
+#    steps:
+#      - uses: actions/checkout@v4
+#
+#      - uses: actions/setup-go@v5
+#        with:
+#          go-version: ${{ env.GO_VERSION }}
+#
+#      - id: collect
+#        name: Read modules from go.work
+#        run: |
+#          set -euo pipefail
+#
+#          # Parse the `use (...)` block of go.work so the matrix always matches the workspace.
+#          modules=$(go work edit -json \
+#            | jq -r '.Use[].DiskPath | ltrimstr("./")' \
+#            | sort)
+#
+#          # Integration tests are opted-in per module via the `integration` build tag.
+#          integration_modules=""
+#          for m in $modules; do
+#            if grep -rql --include='*_test.go' -e '^//go:build integration' "$m"; then
+#              integration_modules="$integration_modules$m"$'\n'
+#            fi
+#          done
+#
+#          {
+#            echo "modules<<EOF"
+#            echo "$modules"
+#            echo "EOF"
+#            echo "integration_modules<<EOF"
+#            printf '%s' "$integration_modules" | sed '/^$/d'
+#            echo "EOF"
+#          } >> "$GITHUB_OUTPUT"
+#
+#          echo "Modules:"; echo "$modules"
+#          echo "Integration modules:"; printf '%s' "$integration_modules" | sed '/^$/d'
+#
+#  lint:
+#    name: Lint (${{ matrix.module }})
+#    needs: discover
+#    runs-on: ubuntu-latest
+#    timeout-minutes: 15
+#    strategy:
+#      fail-fast: false
+#      matrix:
+#        module: ${{ fromJSON(needs.discover.outputs.modules) }}
+#    steps:
+#      - uses: actions/checkout@v4
+#
+#      - uses: actions/setup-go@v5
+#        with:
+#          go-version: ${{ env.GO_VERSION }}
+#          cache: false
+#
+#      - name: Install gofumpt
+#        run: go install mvdan.cc/gofumpt@v0.12.0
+#
+#      - name: Check formatting (gofumpt)
+#        if: matrix.module != 'api'
+#        working-directory: ${{ matrix.module }}
+#        run: |
+#          set -euo pipefail
+#          files=$(gofumpt -extra=group_params -l . || true)
+#          if [ -n "$files" ]; then
+#            echo "::error::The following files are not formatted:"
+#            echo "$files" | sed 's/^/  /'
+#            echo "Run 'make fmt' and commit the result."
+#            exit 1
+#          fi
+#
+#      - name: golangci-lint
+#        uses: golangci/golangci-lint-action@v9
+#        with:
+#          version: v2.13
+#          working-directory: ${{ matrix.module }}
+#          args: --config=${{ github.workspace }}/.golangci.yaml --timeout=5m
+#
+#  build:
+#    name: Build all modules
+#    needs: discover
+#    runs-on: ubuntu-latest
+#    timeout-minutes: 15
+#    steps:
+#      - uses: actions/checkout@v4
+#
+#      - uses: actions/setup-go@v5
+#        with:
+#          go-version: ${{ env.GO_VERSION }}
+#          cache-dependency-path: |
+#            go.work.sum
+#            **/go.sum
+#
+#      - name: go build
+#        run: make build
+#
+#  unit-test:
+#    name: Unit (${{ matrix.module }})
+#    needs: discover
+#    runs-on: ubuntu-latest
+#    timeout-minutes: 20
+#    strategy:
+#      fail-fast: false
+#      matrix:
+#        module: ${{ fromJSON(needs.discover.outputs.modules) }}
+#    steps:
+#      - uses: actions/checkout@v4
+#
+#      - uses: actions/setup-go@v5
+#        with:
+#          go-version: ${{ env.GO_VERSION }}
+#          cache-dependency-path: |
+#            go.work.sum
+#            **/go.sum
+#
+#      - name: go test -race -cover
+#        working-directory: ${{ matrix.module }}
+#        run: |
+#          set -euo pipefail
+#          if [ -z "$(find . -name '*_test.go' -print -quit)" ]; then
+#            echo "No test files, skipping."
+#            exit 0
+#          fi
+#          go test -race -covermode=atomic -coverprofile=coverage.out ./... -count=1
+#
+#      - name: Upload coverage
+#        if: hashFiles(format('{0}/coverage.out', matrix.module)) != ''
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: coverage-${{ matrix.module }}
+#          path: ${{ matrix.module }}/coverage.out
+#          retention-days: 7
+#
+#  integration-test:
+#    name: Integration (${{ matrix.module }})
+#    needs: discover
+#    runs-on: ubuntu-latest
+#    timeout-minutes: 30
+#    strategy:
+#      fail-fast: false
+#      matrix:
+#        module: ${{ fromJSON(needs.discover.outputs.integration_modules) }}
+#    steps:
+#      - uses: actions/checkout@v4
+#
+#      - uses: actions/setup-go@v5
+#        with:
+#          go-version: ${{ env.GO_VERSION }}
+#          cache-dependency-path: |
+#            go.work.sum
+#            **/go.sum
+#
+#      - name: go test -tags=integration
+#        working-directory: ${{ matrix.module }}
+#        run: go test ./... -tags=integration -count=1 -timeout=600s
+#
+#      - name: Dump testcontainers logs on failure
+#        if: failure()
+#        run: docker ps -a --filter "label=org.testcontainers=true" || true
+#
+#  coverage-summary:
+#    name: Coverage summary
+#    needs: [unit-test]
+#    runs-on: ubuntu-latest
+#    if: always()
+#    steps:
+#      - uses: actions/download-artifact@v4
+#        with:
+#          pattern: coverage-*
+#
+#      - name: Report per-module coverage
+#        run: |
+#          set -euo pipefail
+#          shopt -s nullglob
+#          profiles=(coverage-*/*/coverage.out)
+#          if [ ${#profiles[@]} -eq 0 ]; then
+#            echo "No coverage profiles collected."
+#            exit 0
+#          fi
+#          for p in "${profiles[@]}"; do
+#            printf '%-28s %s\n' "$(basename "$(dirname "$p")")" \
+#              "$(go tool cover -func="$p" | awk '/^total:/ {print $3}')"
+#          done
+
 name: CI
 
 on:
-  pull_request:
-    branches: [main, master]
   push:
-    branches: [main, master]
+    branches: [main, prod]
+  pull_request:
+    branches: [main, prod]
+
+permissions:
+  contents: read
 
 jobs:
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.6'
+          cache-dependency-path: '**/go.sum'
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck on all modules
+        run: |
+          set -e
+          for dir in $(go list -m -f '{{.Dir}}'); do
+            echo "=== Scanning $dir ==="
+            (cd "$dir" && govulncheck ./...)
+          done
+
+  trivy:
+    name: Trivy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          trivy-config: 'trivy.yaml'
+          exit-code: '1'
+          severity: 'HIGH,CRITICAL'
+
+  gitleaks:
+    name: Gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
   lint:
-    name: Lint & Format
+    name: Lint & format
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26'
-          cache: true
+          go-version: '1.26.6'
+          cache-dependency-path: '**/go.sum'
 
-      - name: Check formatting (gofumpt)
-        run: |
-          go install mvdan.cc/gofumpt@latest
-          test -z "$(gofumpt -l .)" || {
-            echo "❌ Следующие файлы не отформатированы:"
-            gofumpt -l .
-            echo "Запусти локально: gofumpt -w ."
-            exit 1
-          }
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.6.2
 
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.13
-          args: --config=.golangci.yaml --timeout=5m
+      - name: Lint all modules
+        run: make lint
 
-  test:
-    name: Test & Coverage
+      - name: Check formatting
+        run: make fmt-check
+
+  unit-test:
+    name: Unit tests (race)
     runs-on: ubuntu-latest
-    needs: lint
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26'
+          go-version: '1.26.6'
+          cache-dependency-path: '**/go.sum'
+      - name: Run unit tests with race detector
+        run: make test-race
 
-      - name: Run tests with race detector
-        run: |
-          go test -race ./...
+  integration-test:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.6'
+          cache-dependency-path: '**/go.sum'
+      - name: Run integration tests
+        run: make test-integration
+      - name: Dump testcontainers logs on failure
+        if: failure()
+        run: docker ps -a --filter "label=org.testcontainers=true" || true

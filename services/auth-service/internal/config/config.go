@@ -22,6 +22,7 @@ type Config struct {
 	UserCreatedOutbox infracfg.OutboxConfig         `yaml:"user_created_outbox" env-prefix:"USER_CREATED_OUTBOX_"`
 	KafkaProducer     infracfg.KafkaProducerConfig  `yaml:"kafka_producer" env-prefix:"KAFKA_"`
 	SchemaRegistry    infracfg.SchemaRegistryConfig `yaml:"schema_registry" env-prefix:"SCHEMA_REGISTRY_"`
+	Telemetry         infracfg.TelemetryConfig      `yaml:"telemetry" env-prefix:"TELEMETRY_"`
 }
 
 func Init() (*Config, error) {

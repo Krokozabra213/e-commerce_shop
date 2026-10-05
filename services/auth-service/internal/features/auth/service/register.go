@@ -17,7 +17,7 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (*RegisterO
 
 	err := s.txManager.WithinTransaction(ctx, func(ctx context.Context) error {
 		existingUser, err := s.userRepo.GetByEmail(ctx, input.Email)
-		if err != nil && !errors.Is(err, domain.NotFoundError) {
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
 			return apperror.NewInternal("userRepo.GetByEmail", err, "Что-то пошло не так", nil)
 		}
 		if existingUser != nil {
@@ -39,7 +39,7 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (*RegisterO
 		}
 
 		if err := s.userRepo.Create(ctx, user); err != nil {
-			if errors.Is(err, domain.AlreadyExistsError) {
+			if errors.Is(err, domain.ErrAlreadyExists) {
 				return apperror.NewBusiness(apperror.CodeAlreadyExists, "Пользователь уже существует")
 			}
 			return apperror.NewInternal("userRepo.Create", err, "Что-то пошло не так", nil)
@@ -74,7 +74,6 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (*RegisterO
 
 		return nil
 	})
-
 	if err != nil {
 		return nil, err
 	}

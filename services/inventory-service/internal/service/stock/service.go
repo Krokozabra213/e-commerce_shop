@@ -55,7 +55,7 @@ func (s *StockService) Create(ctx context.Context, input service.ProductItem) er
 	}
 
 	if err := s.stockRepo.Create(ctx, stock); err != nil {
-		if errors.Is(err, domain.AlreadyExistsError) {
+		if errors.Is(err, domain.ErrAlreadyExists) {
 			return apperror.NewBusiness(apperror.CodeConflict, "Запись о товаре уже существует")
 		}
 		return apperror.NewInternal("stockRepo.Create", err, "Что-то пошло не так", nil)
@@ -67,7 +67,7 @@ func (s *StockService) Create(ctx context.Context, input service.ProductItem) er
 func (s *StockService) GetByProductID(ctx context.Context, productID string) (*domain.Stock, error) {
 	stock, err := s.stockRepo.GetByProductID(ctx, productID)
 	if err != nil {
-		if errors.Is(err, domain.NotFoundError) {
+		if errors.Is(err, domain.ErrNotFound) {
 			return nil, apperror.NewBusiness(apperror.CodeNotFound, "Запись о товаре не найдена")
 		}
 		return nil, apperror.NewInternal("stockRepo.GetByProductID", err, "Что-то пошло не так", nil)
@@ -87,7 +87,7 @@ func (s *StockService) GetQuantities(ctx context.Context, productIDs []string) (
 
 func (s *StockService) AddStock(ctx context.Context, input service.ProductItem) error {
 	if err := s.stockRepo.IncreaseQuantity(ctx, input.ProductID, input.Quantity); err != nil {
-		if errors.Is(err, domain.NotFoundError) {
+		if errors.Is(err, domain.ErrNotFound) {
 			return apperror.NewBusiness(apperror.CodeNotFound, "Запись о товаре не найдена")
 		}
 		return apperror.NewInternal("stockRepo.IncreaseQuantity", err, "Что-то пошло не так", nil)

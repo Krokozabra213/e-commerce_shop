@@ -32,7 +32,7 @@ func newTestManager(t *testing.T) (*jwtmanager.RS256JWTManager, *rsa.PrivateKey)
 
 func parseToken(t *testing.T, tokenString string, pubKey *rsa.PublicKey, claims jwt.Claims) {
 	t.Helper()
-	_, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+	_, err := jwt.ParseWithClaims(tokenString, claims, func(_ *jwt.Token) (any, error) {
 		return pubKey, nil
 	})
 	require.NoError(t, err)
@@ -100,6 +100,7 @@ func TestGenerateRefresh_UniqueJTI(t *testing.T) {
 
 	token2, refreshExp, err := mgr.GenerateRefresh(userID)
 	require.NoError(t, err)
+	require.NotEmpty(t, refreshExp)
 
 	parser := jwt.NewParser()
 
@@ -186,7 +187,7 @@ func TestRotateKey_Success(t *testing.T) {
 	parseToken(t, tokenAfter, &newKey.PublicKey, claims2)
 
 	claims3 := &jwtmanager.AccessClaims{}
-	_, err = jwt.ParseWithClaims(tokenAfter, claims3, func(token *jwt.Token) (interface{}, error) {
+	_, err = jwt.ParseWithClaims(tokenAfter, claims3, func(_ *jwt.Token) (interface{}, error) {
 		return &oldKey.PublicKey, nil
 	})
 	assert.Error(t, err, "токен с новым ключом не должен валидироваться старым")

@@ -21,7 +21,7 @@ func NewSchemaRegistryClient(url string) (*SchemaRegistryClient, error) {
 	}, nil
 }
 
-func (s *SchemaRegistryClient) RegisterOrGetSchema(topic string, protoSchemaText string) (*srclient.Schema, error) {
+func (s *SchemaRegistryClient) RegisterOrGetSchema(topic, protoSchemaText string) (*srclient.Schema, error) {
 	subject := topic + "-value"
 
 	schema, err := s.client.CreateSchema(subject, protoSchemaText, srclient.Protobuf)
@@ -32,7 +32,7 @@ func (s *SchemaRegistryClient) RegisterOrGetSchema(topic string, protoSchemaText
 	return schema, nil
 }
 
-func (s *SchemaRegistryClient) Serialize(ctx context.Context, schemaID int, message proto.Message) ([]byte, error) {
+func (s *SchemaRegistryClient) Serialize(_ context.Context, schemaID int, message proto.Message) ([]byte, error) {
 	data, err := proto.Marshal(message)
 	if err != nil {
 		return nil, fmt.Errorf("marshal protobuf: %w", err)
@@ -80,7 +80,7 @@ func (s *SchemaRegistryClient) getMessageIndexes(message proto.Message) []byte {
 	return buf
 }
 
-func (s *SchemaRegistryClient) Deserialize(ctx context.Context, payload []byte, dest proto.Message) error {
+func (s *SchemaRegistryClient) Deserialize(_ context.Context, payload []byte, dest proto.Message) error {
 	if len(payload) < 5 {
 		return fmt.Errorf("payload too short (min 5 bytes)")
 	}
@@ -144,7 +144,7 @@ func (s *SchemaRegistryClient) readMessageIndexesOffset(data []byte) (int, error
 
 func (s *SchemaRegistryClient) Close() {}
 
-func (s *SchemaRegistryClient) Ping(ctx context.Context) error {
+func (s *SchemaRegistryClient) Ping(_ context.Context) error {
 	_, err := s.client.GetSubjects()
 	if err != nil {
 		return fmt.Errorf("ping schema registry: %w", err)

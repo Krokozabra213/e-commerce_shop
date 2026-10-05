@@ -9,10 +9,9 @@ import (
 )
 
 func (s *Service) Logout(ctx context.Context, input LogoutInput) error {
-
 	tokenHash := s.tokenHasher.Hash(input.RefreshToken)
 	if err := s.refreshTokenRepo.Revoke(ctx, tokenHash); err != nil {
-		if errors.Is(err, domain.NotFoundError) {
+		if errors.Is(err, domain.ErrNotFound) {
 			return nil
 		}
 		return apperror.NewInternal("refreshTokenRepo.Revoke", err, "Что-то пошло не так", nil)

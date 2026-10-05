@@ -29,7 +29,7 @@ func (r *PostgresRefreshTokenRepository) Revoke(ctx context.Context, tokenHash s
 	}
 
 	if ct.RowsAffected() == 0 {
-		return domain.NotFoundError
+		return domain.ErrNotFound
 	}
 
 	return nil

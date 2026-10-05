@@ -51,5 +51,5 @@ func (sm *StateMachine) GetAvailableTransitions(from string) []string {
 
 func (sm *StateMachine) IsFinal(status string) bool {
 	transitions := sm.transitions[status]
-	return transitions == nil || len(transitions) == 0
+	return len(transitions) == 0
 }

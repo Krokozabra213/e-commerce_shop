@@ -13,7 +13,7 @@ import (
 func (s *Service) DeleteUser(ctx context.Context, id uuid.UUID) error {
 	err := s.repo.SoftDelete(ctx, id)
 	if err != nil {
-		if errors.Is(err, domain.NotFoundError) {
+		if errors.Is(err, domain.ErrNotFound) {
 			return apperror.NewBusiness(apperror.CodeUnauthorized, "Пользователя с таким id не существует")
 		}
 		return fmt.Errorf("delete user: %w", err)

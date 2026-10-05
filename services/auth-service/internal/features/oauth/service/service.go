@@ -90,7 +90,7 @@ func NewOAuthService(
 	}
 }
 
-func (s *OAuthService) GetAvailableProviders(ctx context.Context) (*GetAvailableProvidersOutput, error) {
+func (s *OAuthService) GetAvailableProviders(_ context.Context) (*GetAvailableProvidersOutput, error) {
 	providers := s.providerFactory.AvailableProviders()
 	return &GetAvailableProvidersOutput{
 		Providers: providers,

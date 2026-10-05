@@ -11,7 +11,6 @@ import (
 )
 
 func (r *PostgresUserRepository) Create(ctx context.Context, user *domain.User) error {
-
 	tx := tx_manager.ExtractTx(ctx)
 	querier := tx_manager.GetQuerier(r.pool, tx)
 
@@ -46,7 +45,7 @@ func (r *PostgresUserRepository) Create(ctx context.Context, user *domain.User) 
 	_, err := querier.Exec(ctx, query, args)
 	if err != nil {
 		if postgres.IsUniqueViolation(err) {
-			return domain.AlreadyExistsError
+			return domain.ErrAlreadyExists
 		}
 		return fmt.Errorf("execute query: %w", err)
 	}

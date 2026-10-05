@@ -32,7 +32,6 @@ func NewProductHandler(productService ProductService) *ProductHandler {
 }
 
 func (h *ProductHandler) ListProducts(c fiber.Ctx, params generated.ListProductsParams) error {
-
 	var cursor *domain.Cursor
 	if params.Cursor != nil && *params.Cursor != "" {
 		var err error

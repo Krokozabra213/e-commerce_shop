@@ -33,7 +33,7 @@ func TestService_Register(t *testing.T) {
 
 		s.userRepo.EXPECT().
 			GetByEmail(gomock.Any(), input.Email).
-			Return(nil, domain.NotFoundError)
+			Return(nil, domain.ErrNotFound)
 
 		s.passHasher.EXPECT().
 			Hash(input.Password).
@@ -43,7 +43,7 @@ func TestService_Register(t *testing.T) {
 
 		s.userRepo.EXPECT().
 			Create(gomock.Any(), gomock.Any()).
-			DoAndReturn(func(ctx context.Context, user *domain.User) error {
+			DoAndReturn(func(_ context.Context, user *domain.User) error {
 				createdUser = user
 
 				assert.NotEqual(t, uuid.Nil, user.ID)
@@ -60,7 +60,7 @@ func TestService_Register(t *testing.T) {
 
 		s.outboxRepo.EXPECT().
 			Create(gomock.Any(), gomock.Any()).
-			DoAndReturn(func(ctx context.Context, event *domain.OutboxEvent) error {
+			DoAndReturn(func(_ context.Context, event *domain.OutboxEvent) error {
 				require.NotNil(t, createdUser, "userRepo.Create must be called before outbox.Create")
 
 				assert.NotEqual(t, uuid.Nil, event.ID)
@@ -146,7 +146,7 @@ func TestService_Register(t *testing.T) {
 
 		s.userRepo.EXPECT().
 			GetByEmail(gomock.Any(), input.Email).
-			Return(nil, domain.NotFoundError)
+			Return(nil, domain.ErrNotFound)
 
 		s.passHasher.EXPECT().
 			Hash(input.Password).
@@ -172,7 +172,7 @@ func TestService_Register(t *testing.T) {
 
 		s.userRepo.EXPECT().
 			GetByEmail(gomock.Any(), input.Email).
-			Return(nil, domain.NotFoundError)
+			Return(nil, domain.ErrNotFound)
 
 		s.passHasher.EXPECT().
 			Hash(input.Password).
@@ -202,7 +202,7 @@ func TestService_Register(t *testing.T) {
 
 		s.userRepo.EXPECT().
 			GetByEmail(gomock.Any(), input.Email).
-			Return(nil, domain.NotFoundError)
+			Return(nil, domain.ErrNotFound)
 
 		s.passHasher.EXPECT().
 			Hash(input.Password).
@@ -252,7 +252,7 @@ func TestService_Register(t *testing.T) {
 
 		s.userRepo.EXPECT().
 			GetByEmail(gomock.Any(), input.Email).
-			Return(nil, domain.NotFoundError)
+			Return(nil, domain.ErrNotFound)
 
 		s.passHasher.EXPECT().
 			Hash(input.Password).
@@ -260,7 +260,7 @@ func TestService_Register(t *testing.T) {
 
 		s.userRepo.EXPECT().
 			Create(gomock.Any(), gomock.Any()).
-			Return(domain.AlreadyExistsError)
+			Return(domain.ErrAlreadyExists)
 
 		result, err := s.svc.Register(ctx, input)
 

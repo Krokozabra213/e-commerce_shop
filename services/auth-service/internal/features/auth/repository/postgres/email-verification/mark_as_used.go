@@ -31,7 +31,7 @@ func (r *PostgresEmailVerificationRepository) MarkAsUsed(ctx context.Context, to
 	}
 
 	if ct.RowsAffected() == 0 {
-		return domain.NotFoundError
+		return domain.ErrNotFound
 	}
 
 	return nil

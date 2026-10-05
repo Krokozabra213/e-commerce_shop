@@ -100,7 +100,7 @@ func TestPostgresUserRepository_UpdateProfile(t *testing.T) {
 
 		input := domain.UpdateProfileInput{FirstName: ptr("Ghost")}
 		_, err := repo.UpdateProfile(ctx, uuid.New(), input)
-		require.ErrorIs(t, err, domain.NotFoundError)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 
 	t.Run("error - updating soft-deleted user returns ErrNotFound", func(t *testing.T) {
@@ -111,7 +111,7 @@ func TestPostgresUserRepository_UpdateProfile(t *testing.T) {
 
 		input := domain.UpdateProfileInput{FirstName: ptr("Zombie")}
 		_, err := repo.UpdateProfile(ctx, user.ID, input)
-		require.ErrorIs(t, err, domain.NotFoundError)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 
 	t.Run("success - updates within transaction and commits", func(t *testing.T) {

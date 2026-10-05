@@ -15,7 +15,7 @@ func (s *Service) VerifyEmail(ctx context.Context, input VerifyEmailInput) error
 	return s.txManager.WithinTransaction(ctx, func(ctx context.Context) error {
 		token, err := s.emailVerificationRepo.GetByTokenHashForUpdate(ctx, tokenHash)
 		if err != nil {
-			if errors.Is(err, domain.NotFoundError) {
+			if errors.Is(err, domain.ErrNotFound) {
 				return apperror.NewBusiness(apperror.CodeBadRequest, "Ссылка недействительна")
 			}
 			return apperror.NewInternal("emailVerificationRepo.GetByTokenHashForUpdate", err, "Токен не найден", nil)

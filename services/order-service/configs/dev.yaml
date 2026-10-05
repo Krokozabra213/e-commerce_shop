@@ -43,3 +43,6 @@ schema_registry:
 
 product_grpc_client:
   addr: "product-service:44400"
+
+telemetry:
+  enabled: false

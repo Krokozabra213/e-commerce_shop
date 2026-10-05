@@ -13,28 +13,28 @@ import (
 
 func RequestLogger(logger *slog.Logger) fiber.Handler {
 	return func(c fiber.Ctx) error {
-		requestId := c.Get(httpx.HeaderRequestID)
+		requestID := c.Get(httpx.HeaderRequestID)
 
-		if requestId == "" {
-			requestId = requestid.FromContext(c)
+		if requestID == "" {
+			requestID = requestid.FromContext(c)
 		}
 
-		if requestId == "" {
-			requestId = uuid.New().String()
+		if requestID == "" {
+			requestID = uuid.New().String()
 		}
 
 		start := time.Now()
 
-		loggerWithRequestId := logger.With("request_id", requestId)
+		loggerWithRequestID := logger.With("request_id", requestID) //nolint:revive
 
 		ctx := c.Context()
-		ctx = log.WithLogger(ctx, loggerWithRequestId)
-		ctx = log.WithRequestID(ctx, requestId)
+		ctx = log.WithLogger(ctx, loggerWithRequestID)
+		ctx = log.WithRequestID(ctx, requestID)
 		c.SetContext(ctx)
 
 		err := c.Next()
 
-		loggerWithRequestId.Info("request",
+		loggerWithRequestID.InfoContext(c.Context(), "request",
 			slog.Int64("duration_ms", time.Since(start).Milliseconds()),
 			slog.String("source_ip", c.IP()),
 			slog.String("path", c.Path()),
