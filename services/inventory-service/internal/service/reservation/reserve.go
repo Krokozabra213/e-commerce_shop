@@ -16,7 +16,6 @@ import (
 )
 
 func (s *ReservationService) Reserve(ctx context.Context, input service.ReserveInput) error {
-
 	sorted := make([]service.ProductItem, len(input.Items))
 	copy(sorted, input.Items)
 	sort.Slice(sorted, func(i, j int) bool {
