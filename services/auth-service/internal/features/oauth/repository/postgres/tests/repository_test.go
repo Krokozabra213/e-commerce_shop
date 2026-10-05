@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/testutils"
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/domain"
 	userRepo "github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/features/auth/repository/postgres/user"
 	oauthrepo "github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/features/oauth/repository/postgres"
@@ -113,7 +113,7 @@ func TestPostgresOAuthRepository_Create(t *testing.T) {
 		require.NoError(t, err)
 		defer tx.Rollback(ctx)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		user := &domain.User{
 			ID:               uuid.New(),
@@ -268,7 +268,7 @@ func TestPostgresOAuthRepository_Create(t *testing.T) {
 		require.NoError(t, err)
 		defer tx.Rollback(ctx)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		user := &domain.User{
 			ID:               uuid.New(),
@@ -401,7 +401,7 @@ func TestPostgresOAuthRepository_GetByProviderAndProviderUserID(t *testing.T) {
 			tx.Rollback(ctx)
 		}()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		user := &domain.User{
 			ID:               uuid.New(),
@@ -539,7 +539,7 @@ func TestPostgresOAuthRepository_GetByProviderAndProviderUserID(t *testing.T) {
 			_ = tx.Rollback(ctx)
 		}()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		user := &domain.User{
 			ID:               uuid.New(),

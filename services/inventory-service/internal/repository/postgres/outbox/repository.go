@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/postgres"
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/inventory-service/internal/domain"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -22,8 +22,8 @@ func NewPostgresOutboxRepository(pool *pgxpool.Pool) *PostgresOutboxRepository {
 }
 
 func (r *PostgresOutboxRepository) Create(ctx context.Context, event *domain.OutboxEvent) error {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		INSERT INTO outbox (
@@ -72,8 +72,8 @@ func (r *PostgresOutboxRepository) ReleaseLocks(ctx context.Context, ids []uuid.
 		return nil
 	}
 
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		UPDATE outbox
@@ -100,8 +100,8 @@ func (r *PostgresOutboxRepository) MarkPublished(ctx context.Context, ids []uuid
 		return nil
 	}
 
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		UPDATE outbox
@@ -139,8 +139,8 @@ func (r *PostgresOutboxRepository) FetchUnpublishedByEventType(
 	workerID string,
 	lease time.Duration,
 ) ([]*domain.OutboxEvent, error) {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		UPDATE outbox

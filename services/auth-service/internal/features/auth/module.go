@@ -7,7 +7,7 @@ import (
 	jwtkeystore "github.com/Krokozabra213/e-commerce_shop/infra/jwt/keystore"
 	jwtmanager "github.com/Krokozabra213/e-commerce_shop/infra/jwt/manager"
 	jwtvalidator "github.com/Krokozabra213/e-commerce_shop/infra/jwt/validator"
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/config"
 	authhandler "github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/features/auth/handler"
 	emailverificationRepo "github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/features/auth/repository/postgres/email-verification"
@@ -38,7 +38,7 @@ func New(deps *Dependencies) *Module {
 	emailVerificationRepository := emailverificationRepo.NewPostgresEmailVerificationRepository(deps.PGXPool)
 	outboxRepository := outboxRepo.NewPostgresOutboxRepository(deps.PGXPool)
 
-	txManager := tx_manager.NewPgTxManager(deps.PGXPool)
+	txManager := txmanager.NewPgTxManager(deps.PGXPool)
 	passHasher := security.NewPasswordHasher(bcrypt.DefaultCost)
 	tokenHasher := security.NewHashingService(deps.Config.App.Secret)
 	jwtManager, err := jwtmanager.NewRS256Manager(deps.RSAPrivateKey, deps.Config.AuthJWT.AccessTTL, deps.Config.AuthJWT.RefreshTTL, deps.Config.AuthJWT.Issuer)

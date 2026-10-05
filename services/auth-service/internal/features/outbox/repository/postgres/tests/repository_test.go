@@ -11,7 +11,7 @@ import (
 
 	infrakafka "github.com/Krokozabra213/e-commerce_shop/infra/kafka"
 	"github.com/Krokozabra213/e-commerce_shop/infra/testutils"
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/domain"
 	outboxRepo "github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/features/outbox/repository/postgres"
 	"github.com/Krokozabra213/e-commerce_shop/services/auth-service/migrations"
@@ -105,7 +105,7 @@ func TestPostgresOutboxRepository_Create(t *testing.T) {
 			_ = tx.Rollback(ctx)
 		}()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		event := &domain.OutboxEvent{
 			ID:            uuid.New(),
@@ -313,7 +313,7 @@ func TestPostgresOutboxRepository_Create(t *testing.T) {
 			_ = tx.Rollback(ctx)
 		}()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		event := &domain.OutboxEvent{
 			ID:            uuid.New(),

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/testutils"
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/inventory-service/internal/domain"
 	reservationRepository "github.com/Krokozabra213/e-commerce_shop/services/inventory-service/internal/repository/postgres/reservation"
 	stockRepository "github.com/Krokozabra213/e-commerce_shop/services/inventory-service/internal/repository/postgres/stock"
@@ -176,7 +176,7 @@ func TestPostgresReservationRepository_CreateBatch(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		orderID := uuid.New()
 		reservations := []*domain.Reservation{
@@ -205,7 +205,7 @@ func TestPostgresReservationRepository_CreateBatch(t *testing.T) {
 		tx, err := testDB.Pool.Begin(ctx)
 		require.NoError(t, err)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		orderID := uuid.New()
 		reservations := []*domain.Reservation{
@@ -298,7 +298,7 @@ func TestPostgresReservationRepository_GetActiveByOrderID(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		found, err := reservationRepo.GetActiveByOrderID(txCtx, orderID)
 		require.NoError(t, err)
@@ -442,7 +442,7 @@ func TestPostgresReservationRepository_ReleaseByOrderID(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		count, err := reservationRepo.ReleaseByOrderID(txCtx, orderID)
 		require.NoError(t, err)
@@ -470,7 +470,7 @@ func TestPostgresReservationRepository_ReleaseByOrderID(t *testing.T) {
 		tx, err := testDB.Pool.Begin(ctx)
 		require.NoError(t, err)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		count, err := reservationRepo.ReleaseByOrderID(txCtx, orderID)
 		require.NoError(t, err)
@@ -644,7 +644,7 @@ func TestPostgresReservationRepository_ExistsByOrderID(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		exists, err := reservationRepo.ExistsByOrderID(txCtx, orderID)
 		require.NoError(t, err)
@@ -665,7 +665,7 @@ func TestPostgresReservationRepository_ExistsByOrderID(t *testing.T) {
 		tx, err := testDB.Pool.Begin(ctx)
 		require.NoError(t, err)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		// Создаем в транзакции
 		require.NoError(t, reservationRepo.CreateBatch(txCtx, reservations))

@@ -17,7 +17,7 @@ import (
 	inframiddleware "github.com/Krokozabra213/e-commerce_shop/infra/middleware"
 	"github.com/Krokozabra213/e-commerce_shop/infra/postgres"
 	"github.com/Krokozabra213/e-commerce_shop/infra/telemetry"
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/user-service/internal/config"
 	"github.com/Krokozabra213/e-commerce_shop/services/user-service/internal/handler"
 	"github.com/Krokozabra213/e-commerce_shop/services/user-service/internal/health"
@@ -57,7 +57,7 @@ func run() error {
 		return err
 	}
 
-	txManager := tx_manager.NewPgTxManager(pool)
+	txManager := txmanager.NewPgTxManager(pool)
 	userRepository := userRepo.NewPostgresUserRepository(pool)
 	service := service.NewService(userRepository, txManager)
 	handler := handler.NewHandler(service)

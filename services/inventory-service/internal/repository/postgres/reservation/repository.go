@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/inventory-service/internal/domain"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -27,8 +27,8 @@ func (r *PostgresReservationRepository) CreateBatch(
 		return nil
 	}
 
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		INSERT INTO reservations (
@@ -77,8 +77,8 @@ func (r *PostgresReservationRepository) GetActiveByOrderID(
 	ctx context.Context,
 	orderID uuid.UUID,
 ) ([]*domain.Reservation, error) {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		SELECT 
@@ -117,8 +117,8 @@ func (r *PostgresReservationRepository) ReleaseByOrderID(
 	ctx context.Context,
 	orderID uuid.UUID,
 ) (int, error) {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		UPDATE reservations
@@ -163,8 +163,8 @@ func (r *PostgresReservationRepository) ExistsByOrderID(
 	ctx context.Context,
 	orderID uuid.UUID,
 ) (bool, error) {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		SELECT EXISTS(

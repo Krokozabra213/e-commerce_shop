@@ -6,7 +6,7 @@ import (
 	"context"
 	"testing"
 
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/user-service/internal/domain"
 	userRepo "github.com/Krokozabra213/e-commerce_shop/services/user-service/internal/repository/postgres/user"
 	"github.com/google/uuid"
@@ -123,7 +123,7 @@ func TestPostgresUserRepository_UpdateProfile(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		input := domain.UpdateProfileInput{FirstName: ptr("TxUpdate")}
 		_, err = repo.UpdateProfile(txCtx, user.ID, input)
@@ -145,7 +145,7 @@ func TestPostgresUserRepository_UpdateProfile(t *testing.T) {
 		tx, err := testDB.Pool.Begin(ctx)
 		require.NoError(t, err)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		input := domain.UpdateProfileInput{FirstName: ptr("WillBeReverted")}
 		_, err = repo.UpdateProfile(txCtx, user.ID, input)

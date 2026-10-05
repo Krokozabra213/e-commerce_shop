@@ -17,7 +17,7 @@ import (
 	inframiddleware "github.com/Krokozabra213/e-commerce_shop/infra/middleware"
 	"github.com/Krokozabra213/e-commerce_shop/infra/postgres"
 	"github.com/Krokozabra213/e-commerce_shop/infra/telemetry"
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/infra/worker"
 	"github.com/Krokozabra213/e-commerce_shop/services/inventory-service/internal/config"
 	grpchandler "github.com/Krokozabra213/e-commerce_shop/services/inventory-service/internal/handler/grpc"
@@ -66,7 +66,7 @@ func run() error {
 	}
 	defer pool.Close()
 
-	txManager := tx_manager.NewPgTxManager(pool)
+	txManager := txmanager.NewPgTxManager(pool)
 	stockRepo := stockRepository.NewPostgresStockRepository(pool)
 	outboxRepo := outboxRepository.NewPostgresOutboxRepository(pool)
 	reservRepo := reservationRepository.NewPostgresReservationRepository(pool)

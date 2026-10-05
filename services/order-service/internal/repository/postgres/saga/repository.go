@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/postgres"
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/order-service/internal/domain"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -22,8 +22,8 @@ func NewPostgresSagaRepository(pool *pgxpool.Pool) *PostgresSagaRepository {
 }
 
 func (r *PostgresSagaRepository) Create(ctx context.Context, saga *domain.SagaState) error {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		INSERT INTO saga_state (
@@ -65,8 +65,8 @@ func (r *PostgresSagaRepository) Create(ctx context.Context, saga *domain.SagaSt
 }
 
 func (r *PostgresSagaRepository) GetByOrderID(ctx context.Context, orderID uuid.UUID) (*domain.SagaState, error) {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		SELECT 
@@ -96,8 +96,8 @@ func (r *PostgresSagaRepository) GetByOrderID(ctx context.Context, orderID uuid.
 }
 
 func (r *PostgresSagaRepository) Update(ctx context.Context, saga *domain.SagaState) error {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		UPDATE saga_state

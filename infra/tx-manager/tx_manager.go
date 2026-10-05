@@ -1,4 +1,4 @@
-package tx_manager
+package txmanager
 
 import (
 	"context"

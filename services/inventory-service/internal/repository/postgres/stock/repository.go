@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/postgres"
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/inventory-service/internal/domain"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,8 +21,8 @@ func NewPostgresStockRepository(pool *pgxpool.Pool) *PostgresStockRepository {
 }
 
 func (r *PostgresStockRepository) Create(ctx context.Context, stock *domain.Stock) error {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		INSERT INTO stocks (
@@ -58,8 +58,8 @@ func (r *PostgresStockRepository) Create(ctx context.Context, stock *domain.Stoc
 }
 
 func (r *PostgresStockRepository) GetByProductID(ctx context.Context, productID string) (*domain.Stock, error) {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		SELECT 
@@ -91,8 +91,8 @@ func (r *PostgresStockRepository) GetByProductIDs(
 		return map[string]int{}, nil
 	}
 
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		SELECT product_id, available_quantity
@@ -130,8 +130,8 @@ func (r *PostgresStockRepository) DecreaseQuantity(
 	productID string,
 	quantity int,
 ) error {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		UPDATE stocks
@@ -178,8 +178,8 @@ func (r *PostgresStockRepository) IncreaseQuantity(
 	productID string,
 	quantity int,
 ) error {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		UPDATE stocks
