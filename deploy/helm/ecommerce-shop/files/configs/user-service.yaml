@@ -1,0 +1,33 @@
+# =============================================================================
+# user-service — конфигурация
+# =============================================================================
+# Секреты НЕ здесь: APP_SECRET, POSTGRES_PASSWORD (из Secret).
+# =============================================================================
+
+app:
+  name: "user-service"
+  version: "v1.0.0"
+
+{{ include "ecommerce-shop.postgresBlock" (dict "root" . "inst" "user") }}
+
+http:
+  host: "0.0.0.0"
+  port: {{ .svc.http.port | quote }}
+  readTimeout: 10s
+  writeTimeout: 10s
+  maxHeaderBytes: 1
+  bodyLimitBytes: 4
+  allowedOrigins:
+{{ include "ecommerce-shop.allowedOrigins" (dict "root" . "svc" .svc) }}
+
+slog:
+  level: {{ .Values.logging.level | quote }}
+  format: {{ .Values.logging.format | quote }}
+  add_source: {{ .Values.logging.addSource }}
+
+{{ include "ecommerce-shop.kafkaConsumerBlock" (dict "root" . "key" "kafkaConsumer" "groupID" "user-service" "topic" "user.created" "dlqTopic" "user.created.dlq") }}
+
+schema_registry:
+  url: {{ .Values.dependencies.schemaRegistry.url | quote }}
+
+{{ include "ecommerce-shop.telemetryBlock" (dict "root" . "name" "user-service") }}

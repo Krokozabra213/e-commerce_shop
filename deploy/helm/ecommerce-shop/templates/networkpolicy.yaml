@@ -1,0 +1,144 @@
+{{- /*
+NetworkPolicy.
+
+ВНИМАНИЕ: политики применяются, только если CNI их поддерживает
+(Calico/Cilium/Antrea). kind и minikube по умолчанию — НЕТ, там включение
+networkPolicy.enabled просто не даст эффекта (не сломает), но и не защитит.
+
+Если networkPolicy.defaultDenyIngress=true, весь входящий трафик в namespace
+запрещается и разрешается только перечисленными ниже потоками.
+*/ -}}
+{{- $root := . }}
+{{- if $root.Values.networkPolicy.enabled }}
+{{- $np := $root.Values.networkPolicy }}
+{{- $extra := $np.extraIngressRules | default list }}
+
+{{- if $np.defaultDenyIngress }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  labels:
+    {{- include "ecommerce-shop.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: network-policy
+spec:
+  # Пустой podSelector = все поды namespace.
+  podSelector: {}
+  policyTypes:
+    - Ingress
+{{- end }}
+
+{{- $gw := index $root.Values.services "api-gateway" | default dict }}
+{{- if $gw.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-gateway-ingress
+  labels:
+    {{- include "ecommerce-shop.componentLabels" (dict "root" $root "name" "api-gateway") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "ecommerce-shop.selectorLabels" (dict "root" $root "name" "api-gateway") | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Без from = разрешено отовсюду (ingress-controller живёт в другом namespace).
+    - ports:
+        - port: {{ $gw.http.port }}
+          protocol: TCP
+    {{- with $extra }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}
+
+{{- range $name, $svc := $root.Values.services }}
+{{- if and $svc.enabled (ne $name "api-gateway") }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ printf "allow-%s-ingress" $name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "ecommerce-shop.componentLabels" (dict "root" $root "name" $name) | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "ecommerce-shop.selectorLabels" (dict "root" $root "name" $name) | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # Сервис-сервис внутри чарта (например order-service -> product-service gRPC).
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: ecommerce-shop
+      ports:
+        - port: {{ $svc.http.port }}
+          protocol: TCP
+        {{- if $svc.grpc }}
+        - port: {{ $svc.grpc.port }}
+          protocol: TCP
+        {{- end }}
+    {{- with $extra }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}
+{{- end }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-infrastructure-ingress
+  labels:
+    {{- include "ecommerce-shop.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: network-policy
+spec:
+  # Поды infra-чарта (Postgres/Redis/Mongo/Kafka/Schema Registry).
+  podSelector:
+    matchLabels:
+      {{- toYaml $np.infrastructurePodLabels | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # Приложение.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: ecommerce-shop
+        # Сама инфраструктура (Kafka <-> Schema Registry).
+        - podSelector:
+            matchLabels:
+              {{- toYaml $np.infrastructurePodLabels | nindent 14 }}
+    {{- with $extra }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-observability-ingress
+  labels:
+    {{- include "ecommerce-shop.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: network-policy
+spec:
+  # Поды observability-чарта (otel-collector/tempo/loki/prometheus/grafana).
+  # Им разрешён вход от любых подов этого namespace: приложение шлёт OTLP,
+  # otel-collector -> tempo/loki, grafana -> tempo/loki/prometheus,
+  # prometheus -> otel-collector.
+  podSelector:
+    matchLabels:
+      {{- toYaml $np.observabilityPodLabels | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+    {{- with $extra }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

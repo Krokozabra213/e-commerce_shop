@@ -19,6 +19,9 @@ RUN apk add --no-cache ca-certificates
 WORKDIR /app
 COPY --from=build /auth-service .
 COPY --from=build /build/services/auth-service/configs ./configs
-COPY --from=build /build/services/auth-service/certs ./certs
+# ВНИМАНИЕ: каталог certs/ (приватный ключ подписи JWT) НЕ копируется в образ.
+# Ключ монтируется из Kubernetes Secret'а (см. deploy/helm/ecommerce-shop),
+# путь задаётся через AUTH_JWT_PRIVATE_KEY_PATH. Копирование ключа в образ
+# означало бы, что любой, кто может забрать образ, может подделывать JWT.
 
 CMD ["./auth-service"]

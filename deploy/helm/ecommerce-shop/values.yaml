@@ -1,0 +1,752 @@
+# =============================================================================
+# ecommerce-shop — values по умолчанию
+# =============================================================================
+# ВАЖНО про имена Service'ов.
+# Service каждого сервиса называется так же, как ключ в `services` (auth-service,
+# api-gateway, ...), БЕЗ префикса релиза. Это требование кода: конфиги ссылаются
+# друг на друга короткими DNS-именами (auth-service:8100, inventory-service:44100,
+# kafka:29092 ...). Следствие: один релиз этого чарта на namespace.
+#
+# Конфигурация сервисов (то, что раньше лежало в services/*/configs/dev.yaml)
+# лежит в `files/configs/<имя-сервиса>.yaml` и рендерится в ConfigMap.
+# Переменные окружения из Secret'а переопределяют секретные поля.
+# =============================================================================
+
+nameOverride: ""
+fullnameOverride: ""
+
+global:
+  # ВНИМАНИЕ: imageRegistry — это ТОЛЬКО хост реестра (например
+  # "registry.example.com" или "ghcr.io"). Путь/проект уже входит в
+  # image.repository (например "ecommerce/api-gateway"),
+  # итоговый образ: <imageRegistry>/<image.repository>:<tag>.
+  # Пусто = Docker Hub.
+  imageRegistry: ""
+  imagePullSecrets: []
+  imagePullPolicy: IfNotPresent
+  # Образ для init-контейнеров ожидания зависимостей.
+  # ВНИМАНИЕ: это ПОЛНАЯ ссылка на образ, global.imageRegistry к ней НЕ
+  # применяется. В приватных реестрах busybox обычно лежит по другому пути
+  # (например "library/busybox"), чем образы приложения, поэтому авто-префикс
+  # приводил бы к ImagePullBackOff. При необходимости укажите полный путь:
+  #   waitImage: "registry.example.com/library/busybox:1.36"
+  waitImage: "busybox:1.36"
+
+  # Значение переменных ENV и APP_ENV.
+  # ВАЖНО: определяет имя файла конфига `configs/<environment>.yaml`.
+  environment: "dev"
+
+  # Сколько секунд init-контейнеры ждут зависимости (TCP/HTTP).
+  waitTimeoutSeconds: 600
+
+  commonLabels: {}
+  commonAnnotations: {}
+
+# -----------------------------------------------------------------------------
+# Адреса зависимостей. Должны совпадать с infra-чартом (../infra) или
+# указывать на внешние managed-сервисы в prod.
+# -----------------------------------------------------------------------------
+dependencies:
+  postgres:
+    auth:
+      host: "auth-postgres"
+      port: "5432"
+      username: "postgres"
+      database: "postgres"
+      sslMode: "disable"
+    inventory:
+      host: "inventory-postgres"
+      port: "5432"
+      username: "postgres"
+      database: "postgres"
+      sslMode: "disable"
+    order:
+      host: "order-postgres"
+      port: "5432"
+      username: "postgres"
+      database: "postgres"
+      sslMode: "disable"
+    user:
+      host: "user-postgres"
+      port: "5432"
+      username: "postgres"
+      database: "postgres"
+      sslMode: "disable"
+
+  redis:
+    host: "redis"
+    port: "6379"
+    database: 0
+
+  mongodb:
+    host: "mongodb"
+    port: "27017"
+    username: "admin"
+    database: "products"
+    # Пусто = URI собирается как mongodb://<username>:<password>@<host>:<port>
+    uri: ""
+    # Параметры URI, добавляемые при сборке (например "?replicaSet=rs0&authSource=admin").
+    uriParams: ""
+
+  kafka:
+    # Список брокеров через запятую (env-separator в KafkaConfig — ",").
+    brokers: "kafka:29092"
+
+  schemaRegistry:
+    url: "http://schema-registry:8081"
+
+  # Адреса сервисов друг для друга (используются в files/configs/*.yaml).
+  services:
+    api-gateway:
+      host: "api-gateway"
+      port: "4000"
+    auth-service:
+      host: "auth-service"
+      port: "8100"
+    user-service:
+      host: "user-service"
+      port: "8200"
+    product-service:
+      host: "product-service"
+      port: "8300"
+      grpcPort: "44400"
+    inventory-service:
+      host: "inventory-service"
+      port: "8400"
+      grpcPort: "44100"
+    order-service:
+      host: "order-service"
+      port: "8600"
+
+# -----------------------------------------------------------------------------
+# Настройки телеметрии, попадающие в configs/*.yaml (секция telemetry).
+# -----------------------------------------------------------------------------
+observability:
+  # Если false — telemetry.enabled=false во всех конфигах.
+  enabled: false
+  otel:
+    endpoint: "otel-collector:4317"
+    insecure: true
+  logs: true
+  metrics: false
+  traces: true
+  tracesSampleRate: 1.0
+  logToStdout: true
+  sampleLogs: false
+
+# -----------------------------------------------------------------------------
+# Секреты. Значения ниже используются ТОЛЬКО при secrets.create=true
+# (dev/staging). В prod ставьте create=false и existingSecret=<имя>.
+#
+# Ожидаемые ключи в Secret'е (одинаковые и для create=true, и для существующего):
+#   app-secret
+#   postgres-auth-password, postgres-user-password,
+#   postgres-inventory-password, postgres-order-password
+#   redis-password
+#   mongodb-uri
+#   jwt-private-key
+#   oauth-google-client-id, oauth-google-client-secret, oauth-google-redirect-url
+#   oauth-github-client-id, oauth-github-client-secret, oauth-github-redirect-url
+# -----------------------------------------------------------------------------
+secrets:
+  create: true
+  # Разрешить secrets.create=true при global.environment=prod/production.
+  # По умолчанию запрещено (fail-fast): пароли и приватный ключ JWT попали бы
+  # в values и Helm release.
+  allowCreateInProduction: false
+  # Имя создаваемого Secret'а (пусто = "<fullname>-secrets").
+  name: ""
+  # Имя существующего Secret'а; используется при create=false.
+  existingSecret: ""
+
+  values:
+    appSecret: "change-me-in-production"
+
+    postgres:
+      # Пароль каждой БД. Значения должны совпадать с infra-чартом.
+      auth: "postgres"
+      user: "postgres"
+      inventory: "postgres"
+      order: "postgres"
+
+    redis: "redis"
+
+    # Пароль root-пользователя MongoDB (нужен для сборки MONGO_URI).
+    # Должен совпадать с infra.mongodb.auth.rootPassword.
+    mongodbPassword: "admin123"
+
+    # Приватный RSA-ключ подписи JWT (PEM, многострочный).
+    # Задаётся так:
+    #   --set-file secrets.values.jwtPrivateKey=services/auth-service/certs/jwt-private.pem
+    # Пустое значение -> helm install падает с понятной ошибкой (fail).
+    jwtPrivateKey: ""
+
+    oauth:
+      # ВНИМАНИЕ: в коде поля clientID/clientSecret/redirectURL помечены
+      # env-required и валидируются ВСЕГДА, даже при enabled=false.
+      # Поэтому заглушка "disabled" обязательна, если OAuth выключен.
+      google:
+        clientId: "disabled"
+        clientSecret: "disabled"
+        redirectUrl: "http://localhost/oauth/google/callback/disabled"
+      github:
+        clientId: "disabled"
+        clientSecret: "disabled"
+        redirectUrl: "http://localhost/oauth/github/callback/disabled"
+
+# -----------------------------------------------------------------------------
+# Настройки auth-service (секции auth_jwt / oauth / email_verification).
+# -----------------------------------------------------------------------------
+auth:
+  jwt:
+    issuer: "auth-service"
+    algorithm: "RS256"
+    keyID: "auth-key-v1"
+    # Путь внутри контейнера. Файл монтируется из Secret'а (ключ jwt-private-key).
+    privateKeyPath: "/etc/ecommerce/certs/jwt-private.pem"
+    accessTTL: 15m
+    refreshTTL: 720h
+    rotation:
+      enabled: false
+  oauth:
+    # clientID/clientSecret/redirectURL ВСЕГДА приходят из Secret'а
+    # (поля помечены env-required и валидируются даже при enabled=false).
+    google:
+      enabled: false
+    github:
+      enabled: false
+  emailVerification:
+    ttl: 15m
+    tokenLength: 32
+
+# -----------------------------------------------------------------------------
+# Логирование (секция slog в configs/*.yaml).
+# -----------------------------------------------------------------------------
+logging:
+  level: "info"
+  format: "json"
+  addSource: false
+
+# -----------------------------------------------------------------------------
+# Rate limiter api-gateway (секция rate_limiter).
+# ВНИМАНИЕ: поля capacity/rate/window НЕ имеют env-тегов, поэтому
+# настраиваются ТОЛЬКО через yaml.
+# -----------------------------------------------------------------------------
+rateLimiter:
+  enabled: true
+  authenticated:
+    capacity: 60
+    rate: 2.0
+    window: 1m
+  anonymous:
+    capacity: 20
+    rate: 0.5
+    window: 1m
+  failOpen: true
+  keyPrefix: "ratelimit"
+
+# -----------------------------------------------------------------------------
+# Kafka: потребители и продюсеры. Значения одинаковы для всех сервисов
+# (переносятся в configs/*.yaml), отличаются только groupID/topic.
+# -----------------------------------------------------------------------------
+kafkaConsumer:
+  sessionTimeout: 30s
+  heartbeatInterval: 10s
+  maxPollInterval: 5m
+  startOffsetEarliest: true
+
+kafkaProducer:
+  dialTimeout: 5s
+  writeTimeout: 10s
+  maxRetries: 5
+  retryBackoff: 300ms
+
+# -----------------------------------------------------------------------------
+# Outbox-паттерн. Применяется ко всем outbox-секциям конфигов.
+# -----------------------------------------------------------------------------
+outbox:
+  batchSize: 100
+  pollInterval: 1s
+  maxAttempts: 10
+  errorBackoff: 2s
+  dbTimeout: 5s
+  sendTimeout: 5s
+  lease: 1m
+
+# -----------------------------------------------------------------------------
+# Значения по умолчанию для всех сервисов. Применяются, если у сервиса
+# соответствующий ключ НЕ задан (проверка через hasKey — булевы false работают).
+# -----------------------------------------------------------------------------
+defaults:
+  # CORS. Для локальной разработки фронтенд обычно на localhost:3000.
+  allowedOrigins:
+    - "http://localhost:3000"
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    fsGroup: 65534
+    fsGroupChangePolicy: OnRootMismatch
+    # Обязательно для Pod Security Standard "restricted":
+    # без seccompProfile поды не пройдут admission в таком namespace.
+    seccompProfile:
+      type: RuntimeDefault
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  terminationGracePeriodSeconds: 30
+
+  probes:
+    startup:
+      enabled: true
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 30
+    liveness:
+      enabled: true
+      initialDelaySeconds: 10
+      periodSeconds: 15
+      timeoutSeconds: 3
+      failureThreshold: 3
+    readiness:
+      enabled: true
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+# -----------------------------------------------------------------------------
+# Миграции goose.
+#
+# ПОЧЕМУ post-install,pre-upgrade, а не pre-install:
+#   Job миграций читает пароль из Secret'а чарта. При pre-install Secret'а
+#   ещё не существует (хуки выполняются до основных ресурсов), поэтому Job
+#   упал бы с "secret not found". post-install гарантирует, что Secret и
+#   ConfigMap уже созданы, а pre-upgrade — что миграции применяются ДО
+#   обновления подов приложения (Secret уже есть с прошлого релиза).
+#
+#   Плата: при САМОЙ ПЕРВОЙ установке поды приложения стартуют раньше
+#   миграций. Для только что созданного кластера это безопасно (трафик ещё
+#   не идёт), потому что /readyz сервисов проверяет только доступность БД,
+#   а не схему.
+#
+# Если нужен строгий порядок «миграции -> поды» на первой установке:
+#   1) создайте Secret заранее (secrets.create=false, secrets.existingSecret);
+#   2) поставьте migrations.hook="pre-install,pre-upgrade".
+# -----------------------------------------------------------------------------
+migrations:
+  enabled: true
+  hook: "post-install,pre-upgrade"
+  hookWeight: "-5"
+  hookDeletePolicy: "before-hook-creation"
+  backoffLimit: 3
+  activeDeadlineSeconds: 900
+  # 0 = не удалять завершённый Job по TTL. Предыдущий Job и так удаляется
+  # политикой before-hook-creation при следующем релизе.
+  ttlSecondsAfterFinished: 0
+  # Сколько ждать доступности БД в init-контейнере.
+  waitTimeoutSeconds: 600
+
+# -----------------------------------------------------------------------------
+# Ingress.
+# ingress.enabled — МАСТЕР-выключатель: Ingress создаётся, только если он
+# включён И у сервиса svc.ingress.enabled=true.
+#
+# По архитектуре наружу публикуется ТОЛЬКО api-gateway. Остальные сервисы —
+# внутренние; если нужен прямой доступ (отладка), включите svc.ingress.enabled.
+# -----------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations: {}
+  tls: []
+  #  - secretName: ecommerce-tls
+  #    hosts:
+  #      - api.ecommerce.local
+
+# -----------------------------------------------------------------------------
+# NetworkPolicy. По умолчанию ВЫКЛЮЧЕНО: при неверных правилах или CNI без
+# поддержки policy весь namespace перестанет общаться. Включайте в prod
+# осознанно, проверив трафик observability-стека (см. README).
+# -----------------------------------------------------------------------------
+networkPolicy:
+  enabled: false
+  # Запретить весь входящий трафик в namespace по умолчанию и разрешать
+  # только перечисленные потоки. Требует CNI с поддержкой NetworkPolicy
+  # (Calico, Cilium, Antrea...). kind/minikube по умолчанию НЕ поддерживают.
+  defaultDenyIngress: true
+  # Метки подов инфраструктуры (infra-чарт).
+  infrastructurePodLabels:
+    app.kubernetes.io/part-of: ecommerce-infra
+  # Метки подов observability-стека (observability-чарт).
+  observabilityPodLabels:
+    app.kubernetes.io/name: observability
+  # Дополнительные селекторы подов, которым разрешён вход во ВСЕ сервисы.
+  # Например, поды другого namespace'а (metrics/ingress) — тогда используйте
+  # namespaceSelector.
+  extraIngressRules: []
+  #  - from:
+  #      - namespaceSelector:
+  #          matchLabels:
+  #            kubernetes.io/metadata.name: monitoring
+  #    ports:
+  #      - port: 4000
+  #        protocol: TCP
+
+# -----------------------------------------------------------------------------
+# Сервисы
+# -----------------------------------------------------------------------------
+services:
+
+  api-gateway:
+    enabled: true
+    replicaCount: 2
+    image:
+      repository: "ecommerce/api-gateway"
+      tag: ""            # пусто = .Chart.AppVersion
+    http:
+      port: 4000
+    grpc: null
+    secrets:
+      redisPassword: true
+    # Ждём зависимости, без которых api-gateway не стартует
+    # (NewClient(redis) и GetPublicKey(auth-service) выполняются синхронно).
+    waitFor:
+      - name: redis
+        host: "redis"
+        port: 6379
+      - name: auth-service
+        host: "auth-service"
+        port: 8100
+        path: "/readyz"
+    autoscaling:
+      enabled: false
+      minReplicas: 2
+      maxReplicas: 10
+      targetCPUUtilizationPercentage: 70
+    pdb:
+      enabled: true
+      minAvailable: 1
+    ingress:
+      enabled: true
+      host: "api.ecommerce.local"
+      path: "/"
+      pathType: "Prefix"
+      annotations: {}
+      tls:
+        enabled: false
+        secretName: ""
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    podAnnotations: {}
+    podLabels: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
+
+  auth-service:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: "ecommerce/auth-service"
+      tag: ""
+    http:
+      port: 8100
+    grpc: null
+    secrets:
+      redisPassword: true
+      oauth: true
+      jwtPrivateKey: true
+    waitFor:
+      - name: postgres
+        host: "auth-postgres"
+        port: 5432
+      - name: redis
+        host: "redis"
+        port: 6379
+      - name: kafka
+        host: "kafka"
+        port: 29092
+      - name: schema-registry
+        host: "schema-registry"
+        port: 8081
+    # Какая БД из dependencies.postgres используется сервисом
+    # (определяет и ключ пароля в Secret'е: postgres-<database>-password).
+    database: "auth"
+    migration:
+      enabled: true
+      image:
+        repository: "ecommerce/auth-service-migrate"
+        tag: ""
+    autoscaling:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+    pdb:
+      enabled: false
+      minAvailable: 1
+    ingress:
+      enabled: false
+      host: "auth.ecommerce.local"
+      path: "/"
+      pathType: "Prefix"
+      annotations: {}
+      tls:
+        enabled: false
+        secretName: ""
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    podAnnotations: {}
+    podLabels: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
+
+  user-service:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: "ecommerce/user-service"
+      tag: ""
+    http:
+      port: 8200
+    grpc: null
+    secrets: {}
+    waitFor:
+      - name: postgres
+        host: "user-postgres"
+        port: 5432
+      - name: kafka
+        host: "kafka"
+        port: 29092
+      - name: schema-registry
+        host: "schema-registry"
+        port: 8081
+    database: "user"
+    migration:
+      enabled: true
+      image:
+        repository: "ecommerce/user-service-migrate"
+        tag: ""
+    autoscaling:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+    pdb:
+      enabled: false
+      minAvailable: 1
+    ingress:
+      enabled: false
+      host: "user.ecommerce.local"
+      path: "/"
+      pathType: "Prefix"
+      annotations: {}
+      tls:
+        enabled: false
+        secretName: ""
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    podAnnotations: {}
+    podLabels: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
+
+  product-service:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: "ecommerce/product-service"
+      tag: ""
+    http:
+      port: 8300
+    grpc:
+      port: 44400
+    secrets:
+      mongodbUri: true
+    waitFor:
+      - name: mongodb
+        host: "mongodb"
+        port: 27017
+    autoscaling:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 10
+      targetCPUUtilizationPercentage: 70
+    pdb:
+      enabled: false
+      minAvailable: 1
+    ingress:
+      enabled: false
+      host: "product.ecommerce.local"
+      path: "/"
+      pathType: "Prefix"
+      annotations: {}
+      tls:
+        enabled: false
+        secretName: ""
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    podAnnotations: {}
+    podLabels: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
+
+  inventory-service:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: "ecommerce/inventory-service"
+      tag: ""
+    http:
+      port: 8400
+    grpc:
+      port: 44100
+    secrets: {}
+    waitFor:
+      - name: postgres
+        host: "inventory-postgres"
+        port: 5432
+      - name: kafka
+        host: "kafka"
+        port: 29092
+      - name: schema-registry
+        host: "schema-registry"
+        port: 8081
+    database: "inventory"
+    migration:
+      enabled: true
+      image:
+        repository: "ecommerce/inventory-service-migrate"
+        tag: ""
+    autoscaling:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+    pdb:
+      enabled: false
+      minAvailable: 1
+    ingress:
+      enabled: false
+      host: "inventory.ecommerce.local"
+      path: "/"
+      pathType: "Prefix"
+      annotations: {}
+      tls:
+        enabled: false
+        secretName: ""
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    podAnnotations: {}
+    podLabels: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
+
+  order-service:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: "ecommerce/order-service"
+      tag: ""
+    http:
+      port: 8600
+    grpc: null
+    secrets: {}
+    waitFor:
+      - name: postgres
+        host: "order-postgres"
+        port: 5432
+      - name: kafka
+        host: "kafka"
+        port: 29092
+      - name: schema-registry
+        host: "schema-registry"
+        port: 8081
+      - name: product-service
+        host: "product-service"
+        port: 44400
+    database: "order"
+    migration:
+      enabled: true
+      image:
+        repository: "ecommerce/order-service-migrate"
+        tag: ""
+    autoscaling:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+    pdb:
+      enabled: false
+      minAvailable: 1
+    ingress:
+      enabled: false
+      host: "order.ecommerce.local"
+      path: "/"
+      pathType: "Prefix"
+      annotations: {}
+      tls:
+        enabled: false
+        secretName: ""
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    podAnnotations: {}
+    podLabels: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []

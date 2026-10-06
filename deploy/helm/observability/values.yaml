@@ -1,0 +1,617 @@
+# =============================================================================
+# observability — Helm values
+# -----------------------------------------------------------------------------
+# Стек наблюдаемости: OTel Collector -> Tempo (traces), Loki (logs),
+# Prometheus (metrics), Grafana (UI).
+#
+# ВАЖНО: имена Service'ов НЕ префиксуются именем релиза. Это сделано
+# намеренно: конфиги, перенесённые из infra/observability/*.yaml, ссылаются
+# на `tempo:4317`, `loki:3100`, `prometheus:9090`. См. fullnameOverride ниже.
+# Из-за этого в одном namespace допустим только один релиз чарта (либо
+# переопределите fullnameOverride у всех компонентов и endpoint'ы в конфигах).
+# =============================================================================
+
+# Глобальные настройки (зарезервировано под будущие общие параметры).
+global:
+  # Только ХОСТ реестра (например "registry.example.com"). Путь/проект уже
+  # входит в <component>.image.repository. Пусто = Docker Hub.
+  imageRegistry: ""
+  # Общие pull-секреты; <component>.imagePullSecrets имеет приоритет.
+  imagePullSecrets: []
+
+# -----------------------------------------------------------------------------
+# OpenTelemetry Collector
+# Принимает OTLP (gRPC/HTTP), пишет traces в Tempo, logs в Loki,
+# а metrics отдаёт через Prometheus exporter (порт 8889) — Go-сервисы
+# НЕ отдают /metrics, поэтому Prometheus скрейпит именно коллектор.
+# -----------------------------------------------------------------------------
+otel-collector:
+  enabled: true
+  # Стабильное короткое имя Service'а. НЕ меняйте без правки конфигов.
+  fullnameOverride: otel-collector
+
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: "0.149.0"
+    pullPolicy: IfNotPresent
+
+  # Коллектор stateless: масштабируется горизонтально, но при нескольких
+  # репликах Prometheus exporter 8889 отдаёт метрики только одной из них.
+  replicaCount: 1
+
+  serviceAccount:
+    create: true
+    # Пусто = имя компонента (otel-collector).
+    name: ""
+    annotations: {}
+
+  service:
+    type: ClusterIP
+
+  # Порт OTLP gRPC.
+  otlpGrpcPort: 4317
+  # Порт OTLP HTTP.
+  otlpHttpPort: 4318
+  # Внутренние метрики самого коллектора (service.telemetry.metrics.address).
+  internalMetricsPort: 8888
+  # Prometheus exporter — его скрейпит Prometheus.
+  prometheusPort: 8889
+  # health_check extension.
+  healthPort: 13133
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    # Дистрибутив коллектора (distroless) ничего не пишет на диск.
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  podAnnotations: {}
+  imagePullSecrets: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  extraEnv: []
+
+  # Конфиг перенесён из infra/observability/otel-collector.yaml.
+  # Изменения относительно docker-compose версии (см. README):
+  #   * добавлен exporter `prometheus` (8889) + pipeline `metrics`
+  #   * добавлен extension `health_check` (13133) для k8s-проб
+  #   * добавлен блок service.telemetry.metrics.address (8888)
+  config: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      memory_limiter:
+        check_interval: 5s
+        limit_mib: 1500
+        spike_limit_mib: 200
+      batch: {}
+
+    exporters:
+      otlp/tempo:
+        endpoint: tempo:4317
+        tls:
+          insecure: true
+
+      otlphttp/loki:
+        endpoint: http://loki:3100/otlp
+
+      # Go-сервисы пушат OTLP и не имеют /metrics — Prometheus скрейпит этот
+      # exporter. resource_to_telemetry_conversion превращает resource
+      # attributes (service.name и т.п.) в labels метрик.
+      prometheus:
+        endpoint: 0.0.0.0:8889
+        enable_open_metrics: true
+        resource_to_telemetry_conversion:
+          enabled: true
+
+      debug:
+        verbosity: basic
+
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlp/tempo, debug]
+
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [prometheus]
+
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlphttp/loki, debug]
+
+      telemetry:
+        logs:
+          level: warn
+        metrics:
+          address: 0.0.0.0:8888
+
+# -----------------------------------------------------------------------------
+# Tempo — хранилище трейсов (local filesystem storage, 1 реплика)
+# -----------------------------------------------------------------------------
+tempo:
+  enabled: true
+  fullnameOverride: tempo
+
+  image:
+    repository: grafana/tempo
+    tag: "2.7.2"
+    pullPolicy: IfNotPresent
+
+  # Локальное (filesystem) хранилище Tempo не поддерживает более 1 реплики.
+  replicaCount: 1
+
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+
+  service:
+    type: ClusterIP
+    httpPort: 3200
+    grpcPort: 9095
+    otlpGrpcPort: 4317
+
+  persistence:
+    enabled: true
+    # Пусто = storageClass по умолчанию в кластере.
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 10Gi
+    annotations: {}
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    # false: Tempo пишет WAL/blocks в /var/tempo, но обращается и к /tmp.
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+
+  podAnnotations: {}
+  imagePullSecrets: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  extraEnv: []
+
+  # Конфиг перенесён из infra/observability/tempo.yaml без изменений.
+  # Пути /var/tempo/wal и /var/tempo/blocks указывают на PVC (mountPath /var/tempo).
+  config: |
+    stream_over_http_enabled: true
+
+    server:
+      http_listen_port: 3200
+      grpc_listen_port: 9095
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+
+    ingester:
+      max_block_duration: 5m
+
+    compactor:
+      compaction:
+        block_retention: 48h
+
+    storage:
+      trace:
+        backend: local
+        wal:
+          path: /var/tempo/wal
+        local:
+          path: /var/tempo/blocks
+
+# -----------------------------------------------------------------------------
+# Loki — хранилище логов (single binary, filesystem storage, 1 реплика)
+# -----------------------------------------------------------------------------
+loki:
+  enabled: true
+  fullnameOverride: loki
+
+  image:
+    repository: grafana/loki
+    tag: "3.5.0"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+
+  service:
+    type: ClusterIP
+    httpPort: 3100
+    grpcPort: 9096
+
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 10Gi
+    annotations: {}
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+
+  podAnnotations: {}
+  imagePullSecrets: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  extraEnv: []
+
+  # Конфиг перенесён из infra/observability/loki.yaml без изменений.
+  # /loki/chunks и /loki/rules указывают на PVC (mountPath /loki).
+  # common.ring.instance_addr=127.0.0.1 корректен для 1 реплики.
+  config: |
+    auth_enabled: false
+
+    server:
+      http_listen_port: 3100
+      grpc_listen_port: 9096
+
+    limits_config:
+      allow_structured_metadata: true
+      otlp_config:
+        resource_attributes:
+          attributes_config:
+            - action: index_label
+              attributes:
+                - service.name
+            - action: index_label
+              attributes:
+                - deployment.environment
+      ingestion_rate_mb: 16
+      ingestion_burst_size_mb: 32
+
+    common:
+      path_prefix: /loki
+      storage:
+        filesystem:
+          chunks_directory: /loki/chunks
+          rules_directory: /loki/rules
+      replication_factor: 1
+      ring:
+        instance_addr: 127.0.0.1
+        kvstore:
+          store: inmemory
+
+    schema_config:
+      configs:
+        - from: "2024-01-01"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+
+    query_range:
+      results_cache:
+        cache:
+          embedded_cache:
+            enabled: true
+            max_size_mb: 100
+
+# -----------------------------------------------------------------------------
+# Prometheus — метрики. Скрейпит prometheus exporter OTel Collector'а
+# (8889 — метрики сервисов, 8888 — внутренние метрики коллектора).
+# -----------------------------------------------------------------------------
+prometheus:
+  enabled: true
+  fullnameOverride: prometheus
+
+  image:
+    repository: prom/prometheus
+    # Актуальный стабильный тег Prometheus 3.x (pinned).
+    tag: "v3.1.0"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+
+  service:
+    type: ClusterIP
+    httpPort: 9090
+
+  # Время хранения метрик (флаг --storage.tsdb.retention.time).
+  retention: 15d
+
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 20Gi
+    annotations: {}
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+
+  podSecurityContext:
+    runAsNonRoot: true
+    # Официальный образ prom/prometheus работает от nobody(65534).
+    runAsUser: 65534
+    runAsGroup: 65534
+    fsGroup: 65534
+    seccompProfile:
+      type: RuntimeDefault
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+
+  podAnnotations: {}
+  imagePullSecrets: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  extraEnv: []
+
+  # ВНИМАНИЕ: если otel-collector.enabled=false, таргеты otel-collector:8889/8888
+  # останутся в конфиге и будут в состоянии down. Уберите их из config
+  # (или переопределите prometheus.config целиком) при отключении коллектора.
+  config: |
+    global:
+      scrape_interval: 15s
+      scrape_timeout: 10s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      # Метрики Go-сервисов, сконвертированные OTel Collector'ом из OTLP.
+      - job_name: otel-collector-prometheus
+        static_configs:
+          - targets:
+              - otel-collector:8889
+
+      # Внутренние метрики самого OTel Collector'а
+      # (service.telemetry.metrics.address = 0.0.0.0:8888).
+      - job_name: otel-collector-internal
+        static_configs:
+          - targets:
+              - otel-collector:8888
+
+      # Self-scrape.
+      - job_name: prometheus
+        static_configs:
+          - targets:
+              - localhost:9090
+
+# -----------------------------------------------------------------------------
+# Grafana — UI. Datasource'ы: Tempo, Loki, Prometheus (provisioning).
+# -----------------------------------------------------------------------------
+grafana:
+  enabled: true
+  fullnameOverride: grafana
+
+  image:
+    repository: grafana/grafana
+    tag: "11.6.0"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+
+  service:
+    type: ClusterIP
+    httpPort: 3000
+
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 5Gi
+    annotations: {}
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  podSecurityContext:
+    runAsNonRoot: true
+    # Официальный образ grafana/grafana использует uid/gid 472.
+    runAsUser: 472
+    runAsGroup: 472
+    fsGroup: 472
+    seccompProfile:
+      type: RuntimeDefault
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+
+  # Пароль администратора. Используется только если existingSecret не задан.
+  # Пусто => при установке/обновлении генерируется случайный пароль
+  # (helm randAlphaNum). Для стабильного пароля задайте значение явно
+  # ИЛИ (в prod) используйте existingSecret.
+  adminPassword: ""
+  adminUser: admin
+
+  # Существующий Secret с паролем администратора (приоритетнее adminPassword).
+  existingSecret: ""
+  existingSecretKey: admin-password
+
+  # Анонимный доступ (как в docker-compose: роль Admin).
+  anonymous:
+    # true по умолчанию в dev, false в values-prod.yaml.
+    enabled: true
+    orgRole: Admin
+
+  # Прочие настройки Grafana (совпадают с docker-compose).
+  logLevel: warn
+  defaultTheme: dark
+  featureToggles:
+    - traceQLStreaming
+
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    host: grafana.example.com
+    path: /
+    pathType: Prefix
+    tls:
+      enabled: false
+      secretName: grafana-tls
+
+  podAnnotations: {}
+  imagePullSecrets: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  extraEnv: []
+
+  # Datasource provisioning (перенесён из
+  # infra/observability/grafana/provisioning/datasources/datasources.yaml)
+  # + добавлен Prometheus (uid: prometheus, url http://prometheus:9090).
+  # `$${__value.raw}` — литерал Grafana (экранирование $ в provisioning).
+  datasources: |
+    apiVersion: 1
+
+    datasources:
+      - name: Tempo
+        type: tempo
+        uid: tempo
+        access: proxy
+        url: http://tempo:3200
+        isDefault: true
+        jsonData:
+          httpMethod: GET
+          tracesToLogsV2:
+            datasourceUid: loki
+            spanStartTimeShift: "-2s"
+            spanEndTimeShift: "2s"
+            tags:
+              - key: "service.name"
+                value: "service_name"
+              - key: "deployment.environment"
+                value: "deployment_environment"
+            filterByTraceID: true
+            filterBySpanID: false
+          lokiSearch:
+            datasourceUid: loki
+          nodeGraph:
+            enabled: true
+
+      - name: Loki
+        type: loki
+        uid: loki
+        access: proxy
+        url: http://loki:3100
+        jsonData:
+          derivedFields:
+            - datasourceUid: tempo
+              matcherRegex: trace_id
+              matcherType: label
+              name: TraceID
+              url: "$${__value.raw}"
+              urlDisplayLabel: "View Trace"
+
+      - name: Prometheus
+        type: prometheus
+        uid: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: false
+        jsonData:
+          httpMethod: POST
+          timeInterval: 15s

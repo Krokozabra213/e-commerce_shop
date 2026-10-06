@@ -1,0 +1,25 @@
+{{- /*
+ConfigMap с конфигурацией сервиса.
+Ключ — <global.environment>.yaml, монтируется в /app/configs/<env>.yaml
+(именно этот путь читает config.Init(): fmt.Sprintf("configs/%s.yaml", ENV)).
+*/ -}}
+{{- $root := . }}
+{{- range $name, $svc := $root.Values.services }}
+{{- if $svc.enabled }}
+{{- $file := printf "files/configs/%s.yaml" $name }}
+{{- if not ($root.Files.Get $file) }}
+{{- fail (printf "не найден файл конфигурации %s для сервиса %s" $file $name) }}
+{{- end }}
+{{- $ctx := dict "Values" $root.Values "Chart" $root.Chart "Release" $root.Release "svc" $svc "name" $name }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ecommerce-shop.configMapName" (dict "root" $root "name" $name) }}
+  labels:
+    {{- include "ecommerce-shop.componentLabels" (dict "root" $root "name" $name) | nindent 4 }}
+data:
+  {{ $root.Values.global.environment }}.yaml: |
+{{ tpl ($root.Files.Get $file) $ctx | indent 4 }}
+{{- end }}
+{{- end }}

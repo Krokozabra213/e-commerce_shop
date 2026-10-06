@@ -1,0 +1,17 @@
+apiVersion: v2
+name: ecommerce-shop
+description: |
+  Микросервисы e-commerce_shop: api-gateway, auth-service, user-service,
+  product-service, inventory-service, order-service. Включает миграции goose,
+  Ingress, HPA, PodDisruptionBudget и NetworkPolicy.
+type: application
+version: 0.2.0
+appVersion: "1.0.0"
+keywords:
+  - ecommerce
+  - microservices
+  - go
+  - kubernetes
+maintainers:
+  - name: E-Commerce Team
+    email: team@ecommerce.example.com

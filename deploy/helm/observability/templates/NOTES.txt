@@ -1,0 +1,58 @@
+{{- $otel := index .Values "otel-collector" -}}
+{{- $tempo := .Values.tempo -}}
+{{- $loki := .Values.loki -}}
+{{- $prom := .Values.prometheus -}}
+{{- $grafana := .Values.grafana -}}
+Observability stack "{{ .Release.Name }}" has been deployed to namespace "{{ .Release.Namespace }}".
+
+Chart: {{ .Chart.Name }}-{{ .Chart.Version }} (app {{ .Chart.AppVersion }})
+Enabled components: {{ include "observability.notesEnabledList" . }}
+
+Service names are intentionally NOT release-prefixed (short and stable), because
+the ported configs reference `tempo`, `loki`, `prometheus`, `otel-collector`.
+{{ if $otel.enabled }}
+OTLP ingestion (point your Go services' TELEMETRY_ENDPOINT here):
+  in-cluster : otel-collector:4317        (gRPC)
+               otel-collector:4318        (HTTP)
+  full DNS   : otel-collector.{{ .Release.Namespace }}.svc.cluster.local
+{{- end }}
+{{ if $prom.enabled }}
+Prometheus scrapes:
+  otel-collector:8889  (application metrics converted from OTLP)
+  otel-collector:8888  (collector internal metrics)
+{{- end }}
+{{ if $grafana.enabled }}
+Grafana:
+  URL        : http://grafana.{{ .Release.Namespace }}.svc.cluster.local:{{ $grafana.service.httpPort }}
+  admin user : {{ $grafana.adminUser }}
+  admin pass : {{ if $grafana.existingSecret }}from secret "{{ $grafana.existingSecret }}" (key "{{ $grafana.existingSecretKey }}"){{ else if $grafana.adminPassword }}from .Values.grafana.adminPassword{{ else }}generated in secret "grafana-admin"{{ end }}
+{{- if $grafana.anonymous.enabled }}
+  anonymous  : enabled with role {{ $grafana.anonymous.orgRole | default "Admin" }}
+{{- end }}
+
+Port-forward to open the UI locally:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/grafana {{ $grafana.service.httpPort }}:{{ $grafana.service.httpPort }}
+  then open http://localhost:{{ $grafana.service.httpPort }}
+{{- end }}
+{{ if $tempo.enabled }}
+Tempo HTTP API:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/tempo {{ $tempo.service.httpPort }}:{{ $tempo.service.httpPort }}
+{{- end }}
+{{ if $loki.enabled }}
+Loki HTTP API:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/loki {{ $loki.service.httpPort }}:{{ $loki.service.httpPort }}
+{{- end }}
+{{ if $prom.enabled }}
+Prometheus UI:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/prometheus {{ $prom.service.httpPort }}:{{ $prom.service.httpPort }}
+{{- end }}
+{{ if $grafana.enabled }}
+Retrieve the generated Grafana admin password:
+  kubectl -n {{ .Release.Namespace }} get secret {{ $grafana.existingSecret | default "grafana-admin" }} -o jsonpath='{.data.{{ $grafana.existingSecretKey | default "admin-password" }}}' | base64 -d
+{{- end }}
+
+NOTE on persistence:
+  tempo      : {{ if $tempo.enabled }}{{ if $tempo.persistence.enabled }}PVC ({{ $tempo.persistence.size }}){{ else }}emptyDir - data is lost on pod restart{{ end }}{{ else }}disabled{{ end }}
+  loki       : {{ if $loki.enabled }}{{ if $loki.persistence.enabled }}PVC ({{ $loki.persistence.size }}){{ else }}emptyDir - data is lost on pod restart{{ end }}{{ else }}disabled{{ end }}
+  prometheus : {{ if $prom.enabled }}{{ if $prom.persistence.enabled }}PVC ({{ $prom.persistence.size }}){{ else }}emptyDir - data is lost on pod restart{{ end }}{{ else }}disabled{{ end }}
+  grafana    : {{ if $grafana.enabled }}{{ if $grafana.persistence.enabled }}PVC ({{ $grafana.persistence.size }}){{ else }}emptyDir - data is lost on pod restart{{ end }}{{ else }}disabled{{ end }}

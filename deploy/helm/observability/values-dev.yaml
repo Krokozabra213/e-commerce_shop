@@ -1,0 +1,75 @@
+# =============================================================================
+# values-dev.yaml — локальная разработка / kind / minikube
+# -----------------------------------------------------------------------------
+# Что переопределяем относительно values.yaml:
+#   * persistence выключен -> emptyDir (не требует StorageClass в kind/minikube)
+#   * меньше ресурсов
+#   * Grafana: анонимный доступ включён, пароль фиксированный (удобно локально)
+#   * debug exporter коллектора подробнее, retention метрик короче
+# Использование:
+#   helm upgrade --install obs deploy/helm/observability -f values-dev.yaml
+# =============================================================================
+
+tempo:
+  persistence:
+    enabled: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+loki:
+  persistence:
+    enabled: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+prometheus:
+  persistence:
+    enabled: false
+  # Короткое хранение — дев-кластеры обычно эфемерные.
+  retention: 6h
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+grafana:
+  persistence:
+    enabled: false
+  # Фиксированный пароль только для локальной разработки.
+  adminPassword: admin
+  anonymous:
+    enabled: true
+    orgRole: Admin
+  logLevel: debug
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  ingress:
+    enabled: false
+
+otel-collector:
+  # Локально memory_limiter можно оставить как есть, но лимиты ниже.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi

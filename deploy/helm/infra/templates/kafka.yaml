@@ -1,0 +1,204 @@
+{{- if .Values.kafka.enabled }}
+{{- $kafka := .Values.kafka }}
+{{- $component := "kafka" }}
+{{- $internal := $kafka.listeners.internal }}
+{{- $controller := $kafka.listeners.controller }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $kafka.serviceName }}
+  labels:
+    {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "broker") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: broker
+      port: {{ $internal.port }}
+      targetPort: broker
+      protocol: TCP
+    - name: controller
+      port: {{ $controller.port }}
+      targetPort: controller
+      protocol: TCP
+  selector:
+    {{- include "infra.selectorLabels" (dict "root" $ "component" $component) | nindent 4 }}
+---
+# Headless Service — управляющий для StatefulSet (см. postgresql.yaml).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $kafka.serviceName }}-headless
+  labels:
+    {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "broker") | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: broker
+      port: {{ $internal.port }}
+      targetPort: broker
+      protocol: TCP
+    - name: controller
+      port: {{ $controller.port }}
+      targetPort: controller
+      protocol: TCP
+  selector:
+    {{- include "infra.selectorLabels" (dict "root" $ "component" $component) | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $kafka.serviceName }}
+  labels:
+    {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "broker") | nindent 4 }}
+spec:
+  serviceName: {{ $kafka.serviceName }}-headless
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "infra.selectorLabels" (dict "root" $ "component" $component) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "broker") | nindent 8 }}
+        {{- with $kafka.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        # CLUSTER_ID менять нельзя для уже отформатированного PVC — учитываем в hash.
+        ecommerce.io/config-hash: {{ (printf "%v|%v|%v|%v" $kafka.clusterId $kafka.nodeId $internal.port $controller.port) | sha256sum | trunc 16 | quote }}
+        {{- with $kafka.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "infra.imagePullSecrets" $ | nindent 6 }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        {{- toYaml $kafka.podSecurityContext | nindent 8 }}
+      containers:
+        - name: kafka
+          image: {{ include "infra.image" (dict "root" $ "image" $kafka.image) }}
+          imagePullPolicy: {{ include "infra.imagePullPolicy" $ }}
+          ports:
+            - name: broker
+              containerPort: {{ $internal.port }}
+              protocol: TCP
+            - name: controller
+              containerPort: {{ $controller.port }}
+              protocol: TCP
+          env:
+            - name: KAFKA_NODE_ID
+              value: {{ $kafka.nodeId | quote }}
+            - name: CLUSTER_ID
+              value: {{ $kafka.clusterId | quote }}
+            - name: KAFKA_PROCESS_ROLES
+              value: "broker,controller"
+            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+              {{- /*
+                ВАЖНО: адресуем controller через per-pod headless DNS
+                (<sts>-0.<svc>-headless), а НЕ через ClusterIP-сервис.
+                У ClusterIP нет endpoints, пока под не Ready, поэтому брокер не
+                смог бы установить controller quorum и никогда не стал бы Ready
+                (deadlock). У headless-сервиса publishNotReadyAddresses: true,
+                поэтому его DNS-запись доступна сразу.
+              */}}
+              value: {{ printf "%d@%s-0.%s-headless:%d" (int $kafka.nodeId) $kafka.serviceName $kafka.serviceName (int $controller.port) | quote }}
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: {{ printf "%s:PLAINTEXT,%s:PLAINTEXT" $controller.name $internal.name | quote }}
+            - name: KAFKA_LISTENERS
+              value: {{ printf "%s://0.0.0.0:%d,%s://0.0.0.0:%d" $internal.name (int $internal.port) $controller.name (int $controller.port) | quote }}
+            # Сервисы внутри кластера подключаются по короткому DNS-имени.
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: {{ printf "%s://%s:%d" $internal.name $kafka.serviceName (int $internal.port) | quote }}
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: {{ $internal.name | quote }}
+            - name: KAFKA_CONTROLLER_LISTENER_NAMES
+              value: {{ $controller.name | quote }}
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: {{ $kafka.offsetsTopicReplicationFactor | quote }}
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: {{ $kafka.transactionStateLogReplicationFactor | quote }}
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: {{ $kafka.transactionStateLogMinIsr | quote }}
+            - name: KAFKA_LOG_DIRS
+              value: "/var/lib/kafka/data"
+            # Как в docker-compose.yaml: дефолт Confluent-образа (auto.create.topics.enable=true).
+            # Топики всё равно создаются явно Job'ом kafka-topics.
+            {{- with $kafka.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          startupProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - exec kafka-broker-api-versions --bootstrap-server "127.0.0.1:{{ $internal.port }}" >/dev/null 2>&1
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - exec kafka-broker-api-versions --bootstrap-server "127.0.0.1:{{ $internal.port }}" >/dev/null 2>&1
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - exec kafka-broker-api-versions --bootstrap-server "127.0.0.1:{{ $internal.port }}" >/dev/null 2>&1
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 5
+          {{- include "infra.resources" $kafka.resources | nindent 10 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/kafka/data
+      {{- if not $kafka.persistence.enabled }}
+      volumes:
+        - name: data
+          emptyDir: {}
+      {{- end }}
+      {{- with $kafka.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $kafka.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $kafka.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if $kafka.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "broker") | nindent 10 }}
+      spec:
+        accessModes:
+          {{- toYaml $kafka.persistence.accessModes | nindent 10 }}
+        {{- if $kafka.persistence.storageClass }}
+        storageClassName: {{ $kafka.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $kafka.persistence.size | quote }}
+  {{- end }}
+{{- end }}

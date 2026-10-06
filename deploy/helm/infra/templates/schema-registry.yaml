@@ -1,0 +1,122 @@
+{{- if .Values.schemaRegistry.enabled }}
+{{- $sr := .Values.schemaRegistry }}
+{{- $component := "schema-registry" }}
+{{- $kafkaPort := .Values.kafka.listeners.internal.port }}
+{{- /* Kafka может быть внешним (Strimzi/managed) при kafka.enabled=false. */ -}}
+{{- $bootstrap := $sr.kafkaBootstrapServers | default (printf "%s:%d" .Values.kafka.serviceName (int $kafkaPort)) }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $sr.serviceName }}
+  labels:
+    {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "registry") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ $sr.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "infra.selectorLabels" (dict "root" $ "component" $component) | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $sr.serviceName }}
+  labels:
+    {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "registry") | nindent 4 }}
+spec:
+  replicas: {{ $sr.replicas }}
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "infra.selectorLabels" (dict "root" $ "component" $component) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "registry") | nindent 8 }}
+        {{- with $sr.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        ecommerce.io/config-hash: {{ (printf "%v|%v|%v" $sr.compatibilityLevel $sr.service.port $kafkaPort) | sha256sum | trunc 16 | quote }}
+        {{- with $sr.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "infra.imagePullSecrets" $ | nindent 6 }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        {{- toYaml $sr.podSecurityContext | nindent 8 }}
+      {{- if .Values.kafka.enabled }}
+      initContainers:
+        {{- include "infra.waitFor" (dict "root" $ "name" "kafka" "host" .Values.kafka.serviceName "port" $kafkaPort "timeoutSeconds" 600) | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: schema-registry
+          image: {{ include "infra.image" (dict "root" $ "image" $sr.image) }}
+          imagePullPolicy: {{ include "infra.imagePullPolicy" $ }}
+          ports:
+            - name: http
+              containerPort: 8081
+              protocol: TCP
+          env:
+            - name: SCHEMA_REGISTRY_HOST_NAME
+              value: {{ $sr.serviceName | quote }}
+            - name: SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS
+              value: {{ $bootstrap | quote }}
+            - name: SCHEMA_REGISTRY_LISTENERS
+              value: "http://0.0.0.0:8081"
+            - name: SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL
+              value: {{ $sr.compatibilityLevel | quote }}
+            - name: SCHEMA_REGISTRY_LOG4J_ROOT_LOGLEVEL
+              value: {{ $sr.logLevel | quote }}
+            # Один инстанс -> встроенный топик схем должен иметь RF=1 и compact.
+            - name: SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR
+              value: "1"
+          startupProbe:
+            httpGet:
+              path: /subjects
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /subjects
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /subjects
+              port: http
+            initialDelaySeconds: 45
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+          {{- include "infra.resources" $sr.resources | nindent 10 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      {{- with $sr.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $sr.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $sr.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

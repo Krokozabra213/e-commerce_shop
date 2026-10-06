@@ -1,0 +1,88 @@
+# =============================================================================
+# api-gateway — конфигурация
+# =============================================================================
+# Рендерится Helm'ом в ConfigMap и монтируется как /app/configs/<env>.yaml.
+# Секреты (APP_SECRET, REDIS_PASSWORD) НЕ здесь — они приходят переменными
+# окружения из Secret'а и имеют приоритет над этим файлом (cleanenv: YAML,
+# затем env).
+#
+# ВНИМАНИЕ: cleanenv читает env-переменные ТОЛЬКО для полей, у которых в
+# структуре есть тег `env`, и имя переменной = env-prefix + env-тег.
+# =============================================================================
+
+app:
+  name: "api-gateway"
+  version: "v1.0.0"
+
+redis:
+  addr: "{{ .Values.dependencies.redis.host }}:{{ .Values.dependencies.redis.port }}"
+  database: {{ .Values.dependencies.redis.database }}
+  # password -> REDIS_PASSWORD (из Secret)
+
+http:
+  host: "0.0.0.0"
+  port: {{ .svc.http.port | quote }}
+  readTimeout: 10s
+  writeTimeout: 10s
+  # ВНИМАНИЕ: имена исторические, значения — в МЕГАБАЙТАХ
+  # (fiber.ReadBufferSize = maxHeaderBytes * 1MiB, BodyLimit = bodyLimitBytes * 1MiB).
+  maxHeaderBytes: 1
+  bodyLimitBytes: 4
+  allowedOrigins:
+{{ include "ecommerce-shop.allowedOrigins" (dict "root" . "svc" .svc) }}
+
+slog:
+  level: {{ .Values.logging.level | quote }}
+  format: {{ .Values.logging.format | quote }}
+  add_source: {{ .Values.logging.addSource }}
+
+# gRPC-клиент к inventory-service.
+# ВАЖНО: в services/api-gateway/configs/dev.yaml здесь ОШИБКА — указан
+# "auth-service:44100", хотя gRPC-сервер есть только у inventory-service.
+grpc_inventory_client:
+  addr: "{{ (index .Values.dependencies.services "inventory-service").host }}:{{ (index .Values.dependencies.services "inventory-service").grpcPort }}"
+
+http_auth_client:
+  addr: "{{ (index .Values.dependencies.services "auth-service").host }}:{{ (index .Values.dependencies.services "auth-service").port }}"
+  timeout: 5s
+  retries: 2
+
+http_inventory_client:
+  addr: "{{ (index .Values.dependencies.services "inventory-service").host }}:{{ (index .Values.dependencies.services "inventory-service").port }}"
+  timeout: 5s
+  retries: 2
+
+http_order_client:
+  addr: "{{ (index .Values.dependencies.services "order-service").host }}:{{ (index .Values.dependencies.services "order-service").port }}"
+  timeout: 5s
+  retries: 2
+
+http_product_client:
+  addr: "{{ (index .Values.dependencies.services "product-service").host }}:{{ (index .Values.dependencies.services "product-service").port }}"
+  timeout: 5s
+  retries: 2
+
+http_user_client:
+  addr: "{{ (index .Values.dependencies.services "user-service").host }}:{{ (index .Values.dependencies.services "user-service").port }}"
+  timeout: 5s
+  retries: 2
+
+jwt:
+  issuer: "auth-service"
+  # publicKeyPath / jwksEndpoint не задаются: ключ api-gateway получает
+  # у auth-service по HTTP (GetPublicKey) при старте.
+
+rate_limiter:
+  enabled: {{ .Values.rateLimiter.enabled }}
+  authenticated:
+    capacity: {{ .Values.rateLimiter.authenticated.capacity }}
+    rate: {{ .Values.rateLimiter.authenticated.rate }}
+    window: {{ .Values.rateLimiter.authenticated.window }}
+  anonymous:
+    capacity: {{ .Values.rateLimiter.anonymous.capacity }}
+    rate: {{ .Values.rateLimiter.anonymous.rate }}
+    window: {{ .Values.rateLimiter.anonymous.window }}
+  failOpen: {{ .Values.rateLimiter.failOpen }}
+  keyPrefix: {{ .Values.rateLimiter.keyPrefix | quote }}
+
+{{ include "ecommerce-shop.telemetryBlock" (dict "root" . "name" "api-gateway") }}

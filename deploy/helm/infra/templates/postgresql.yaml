@@ -1,0 +1,200 @@
+{{- if .Values.postgresql.enabled }}
+{{- $pg := .Values.postgresql }}
+{{- /*
+  Один Secret на все инстансы PostgreSQL. Ключ на инстанс: "<key>-password".
+  Если задан auth.existingSecret — Secret не создаём.
+*/ -}}
+{{- if not $pg.auth.existingSecret }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $pg.auth.secretName }}
+  labels:
+    {{- include "infra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+type: Opaque
+data:
+  {{- range $key, $inst := $pg.instances }}
+  {{- if $inst.enabled }}
+  {{ $key }}-password: {{ ($inst.password | default $pg.auth.password) | b64enc | quote }}
+  {{- end }}
+  {{- end }}
+{{- end }}
+
+{{- range $key, $inst := $pg.instances }}
+{{- if $inst.enabled }}
+{{- $component := printf "postgresql-%s" $key }}
+{{- $database := $inst.database | default $pg.auth.database | default "postgres" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $inst.serviceName }}
+  labels:
+    {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "datastore") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: postgres
+      port: {{ $pg.service.port }}
+      targetPort: postgres
+      protocol: TCP
+  selector:
+    {{- include "infra.selectorLabels" (dict "root" $ "component" $component) | nindent 4 }}
+---
+# Headless Service — управляющий (governing) для StatefulSet.
+# Нужен, чтобы существовала DNS-идентичность пода (<pod>.<svc>), и чтобы
+# spec.serviceName ссылался на headless-сервис, как требует семантика StatefulSet.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $inst.serviceName }}-headless
+  labels:
+    {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "datastore") | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: postgres
+      port: {{ $pg.service.port }}
+      targetPort: postgres
+      protocol: TCP
+  selector:
+    {{- include "infra.selectorLabels" (dict "root" $ "component" $component) | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $inst.serviceName }}
+  labels:
+    {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "datastore") | nindent 4 }}
+spec:
+  serviceName: {{ $inst.serviceName }}-headless
+  replicas: 1
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "infra.selectorLabels" (dict "root" $ "component" $component) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "datastore") | nindent 8 }}
+        {{- with $pg.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        # Перезапуск пода при изменении параметров (checksum не нужен: пароль берётся из Secret).
+        ecommerce.io/config-hash: {{ (printf "%v|%v|%v" $pg.extraConfig $database $pg.service.port) | sha256sum | trunc 16 | quote }}
+        {{- with $pg.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "infra.imagePullSecrets" $ | nindent 6 }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 120
+      securityContext:
+        {{- toYaml $pg.podSecurityContext | nindent 8 }}
+      containers:
+        - name: postgres
+          image: {{ include "infra.image" (dict "root" $ "image" $pg.image) }}
+          imagePullPolicy: {{ include "infra.imagePullPolicy" $ }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          args:
+            - "-c"
+            - "listen_addresses=*"
+            {{- range $cfgKey, $cfgValue := $pg.extraConfig }}
+            - "-c"
+            - {{ printf "%s=%s" $cfgKey (toString $cfgValue) | quote }}
+            {{- end }}
+          env:
+            - name: POSTGRES_USER
+              value: {{ $pg.auth.username | quote }}
+            - name: POSTGRES_DB
+              value: {{ $database | quote }}
+            # ВАЖНО: PGDATA во вложенной директории — иначе ext4/lost+found ломает initdb.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "infra.postgresql.secretName" $ }}
+                  key: {{ printf "%s-password" $key }}
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - exec pg_isready -h 127.0.0.1 -p 5432 -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - exec pg_isready -h 127.0.0.1 -p 5432 -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          # Даём PostgreSQL время корректно завершиться (fast shutdown -> checkpoint).
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - exec pg_ctl stop -D "$PGDATA" -m fast -w -t 60
+          {{- include "infra.resources" $pg.resources | nindent 10 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      {{- if not $pg.persistence.enabled }}
+      volumes:
+        - name: data
+          emptyDir: {}
+      {{- end }}
+      {{- with $pg.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $pg.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $pg.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if $pg.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "datastore") | nindent 10 }}
+      spec:
+        accessModes:
+          {{- toYaml $pg.persistence.accessModes | nindent 10 }}
+        {{- if $pg.persistence.storageClass }}
+        storageClassName: {{ $pg.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $pg.persistence.size | quote }}
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

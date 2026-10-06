@@ -1,0 +1,94 @@
+{{- /*
+Jobs миграций goose (по одному на сервис, у которого есть БД).
+
+Образ собирается из services/<name>/Migrate.Dockerfile:
+  docker build -f services/auth-service/Migrate.Dockerfile \
+    -t <registry>/ecommerce/auth-service-migrate:<tag> .
+
+GOOSE_DBSTRING собирается с $(POSTGRES_PASSWORD): Kubernetes сам подставляет
+значение переменной окружения в env-значение, поэтому пароль не попадает
+в манифест.
+*/ -}}
+{{- $root := . }}
+{{- if $root.Values.migrations.enabled }}
+{{- $m := $root.Values.migrations }}
+{{- $secretName := include "ecommerce-shop.secretName" $root }}
+{{- range $name, $svc := $root.Values.services }}
+{{- $migration := $svc.migration | default dict }}
+{{- if and $svc.enabled $svc.database $migration.enabled }}
+{{- $pg := index $root.Values.dependencies.postgres $svc.database }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "%s-migrate" $name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "ecommerce-shop.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ printf "%s-migrate" $name }}
+  annotations:
+    "helm.sh/hook": {{ $m.hook | quote }}
+    "helm.sh/hook-weight": {{ $m.hookWeight | quote }}
+    "helm.sh/hook-delete-policy": {{ $m.hookDeletePolicy | quote }}
+spec:
+  backoffLimit: {{ $m.backoffLimit }}
+  activeDeadlineSeconds: {{ $m.activeDeadlineSeconds }}
+  {{- if gt (int $m.ttlSecondsAfterFinished) 0 }}
+  ttlSecondsAfterFinished: {{ $m.ttlSecondsAfterFinished }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "ecommerce-shop.labels" $root | nindent 8 }}
+        app.kubernetes.io/component: {{ printf "%s-migrate" $name }}
+      annotations:
+        checksum/secret: {{ printf "postgres-%s-password" $svc.database | sha256sum | trunc 16 | quote }}
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      {{- with $root.Values.global.imagePullSecrets }}
+      # Без этого Job'ы миграций не смогут забрать образ из приватного реестра.
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        {{- include "ecommerce-shop.waitContainer" (dict "root" $root "item" (dict "name" "postgres" "host" $pg.host "port" (int $pg.port))) | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "ecommerce-shop.image" (dict "root" $root "image" $svc.migration.image) }}
+          imagePullPolicy: {{ include "ecommerce-shop.imagePullPolicy" $root }}
+          env:
+            - name: GOOSE_DRIVER
+              value: "postgres"
+            - name: GOOSE_MIGRATION_DIR
+              value: "/app/migrations"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: {{ printf "postgres-%s-password" $svc.database }}
+            # $(POSTGRES_PASSWORD) раскрывается Kubernetes'ом.
+            - name: GOOSE_DBSTRING
+              value: "host={{ $pg.host }} port={{ $pg.port }} user={{ $pg.username }} password=$(POSTGRES_PASSWORD) dbname={{ $pg.database }} sslmode={{ $pg.sslMode }} connect_timeout=10"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+{{- end }}
+{{- end }}
+{{- end }}

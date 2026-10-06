@@ -1,0 +1,152 @@
+# =============================================================================
+# ecommerce-infra — профиль для реального кластера
+# =============================================================================
+# ВНИМАНИЕ (важно понимать перед использованием):
+#   Этот чарт запускает PostgreSQL/Redis/MongoDB/Kafka как одиночные
+#   StatefulSet'ы внутри кластера. Это допустимо для staging и небольших
+#   production-инсталляций, но НЕ даёт HA, бэкапов, PITR и автомасштабирования.
+#
+#   Для настоящего production предпочтительнее:
+#     * PostgreSQL — оператор CloudNativePG / Percona, либо managed (RDS/Cloud SQL)
+#     * Redis      — managed (ElastiCache/Memorystore) или Redis Operator
+#     * MongoDB    — MongoDB Community/Enterprise Operator, либо Atlas
+#     * Kafka      — Strimzi Operator (KRaft, 3+ брокера)
+#   В этом случае установите соответствующие `enabled: false` и укажите адреса
+#   внешних сервисов в values app-чарта (см. ../ecommerce-shop/values-prod.yaml).
+#
+# `helm install ecommerce-infra ./deploy/helm/infra -f values-prod.yaml`
+# =============================================================================
+
+global:
+  # Обязательно заполните: реестр образов.
+  imageRegistry: ""
+  imagePullSecrets: []
+  imagePullPolicy: IfNotPresent
+
+postgresql:
+  enabled: true
+  auth:
+    username: postgres
+    # Пароли НЕ хранятся в values. Создайте Secret заранее:
+    #   kubectl create secret generic postgresql-credentials \
+    #     --from-literal=auth-password="$(openssl rand -hex 24)" \
+    #     --from-literal=inventory-password="$(openssl rand -hex 24)" \
+    #     --from-literal=order-password="$(openssl rand -hex 24)" \
+    #     --from-literal=user-password="$(openssl rand -hex 24)"
+    password: ""
+    existingSecret: "postgresql-credentials"
+    secretName: "postgresql-credentials"
+  persistence:
+    enabled: true
+    size: 20Gi
+    # Укажите StorageClass с поддержкой расширения (например, gp3, premium-rwo).
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  extraConfig:
+    max_connections: "200"
+    shared_buffers: "1GB"
+  # Разносим инстансы БД по разным узлам.
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: infra
+
+redis:
+  enabled: true
+  auth:
+    enabled: true
+    password: ""
+    existingSecret: "redis-credentials"
+    secretName: "redis-credentials"
+    passwordKey: "password"
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: ""
+  config:
+    appendonly: true
+    maxmemory: "1gb"
+    maxmemoryPolicy: "noeviction"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+mongodb:
+  enabled: true
+  auth:
+    enabled: true
+    rootUsername: admin
+    rootPassword: ""
+    database: products
+    existingSecret: "mongodb-credentials"
+    secretName: "mongodb-credentials"
+  persistence:
+    enabled: true
+    size: 30Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+kafka:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: "4"
+      memory: 4Gi
+  # ВАЖНО: 3 топика-партиции имеют смысл только с 3 брокерами.
+  # Одиночный брокер в prod означает недоступность Kafka при рестарте пода.
+  # Для HA используйте Strimzi (3+ брокера) и выставьте kafka.enabled=false.
+  topics:
+    enabled: true
+    partitions: 6
+    replicationFactor: 1
+
+schemaRegistry:
+  enabled: true
+  replicas: 2
+  compatibilityLevel: "backward"
+  logLevel: "WARN"
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+  # Разносим реплики Schema Registry по узлам.
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/component: schema-registry

@@ -1,0 +1,27 @@
+{{- /*
+Проверки конфигурации. Файл ничего не рендерит — он только валидирует values
+и падает с понятным сообщением вместо невнятной ошибки в кластере.
+*/ -}}
+{{- $root := . }}
+{{- if include "ecommerce-shop.anyServiceEnabled" $root }}
+
+{{- /* Секреты: либо создаём сами, либо должен быть указан существующий Secret. */ -}}
+{{- if and (not $root.Values.secrets.create) (not $root.Values.secrets.existingSecret) }}
+{{- fail "\n\nsecrets.create=false, но secrets.existingSecret не задан.\nЧарт не создаст Secret, а поды будут ссылаться на несуществующий <release>-secrets\n(в кластере это проявится как CreateContainerConfigError).\n\nЗадайте одно из:\n  --set secrets.create=true --set-file secrets.values.jwtPrivateKey=services/auth-service/certs/jwt-private.pem\n  --set secrets.create=false --set secrets.existingSecret=<имя существующего Secret>\n" }}
+{{- end }}
+
+{{- /* Не даём случайно уехать в prod с паролями из values. */ -}}
+{{- $env := lower ($root.Values.global.environment | toString) }}
+{{- if and $root.Values.secrets.create (or (eq $env "prod") (eq $env "production")) (not $root.Values.secrets.allowCreateInProduction) }}
+{{- fail "\n\nglobal.environment=prod, но secrets.create=true: пароли и приватный ключ JWT\nбудут взяты из values и попадут в Helm release/ConfigMap.\n\nДля prod:\n  --set secrets.create=false --set secrets.existingSecret=<имя Secret>\n\nЕсли это осознанное решение (например, изолированный staging с именем prod),\nразрешите явно:\n  --set secrets.allowCreateInProduction=true\n" }}
+{{- end }}
+
+{{- /* Миграции без БД невозможны. */ -}}
+{{- range $name, $svc := $root.Values.services }}
+{{- $migration := $svc.migration | default dict }}
+{{- if and $svc.enabled $migration.enabled (not $svc.database) }}
+{{- fail (printf "\n\nservices.%s.migration.enabled=true, но services.%s.database не задан.\nМиграции goose выполняются только для сервисов с PostgreSQL.\nУберите migration.enabled или задайте database (auth|user|inventory|order).\n" $name $name) }}
+{{- end }}
+{{- end }}
+
+{{- end }}

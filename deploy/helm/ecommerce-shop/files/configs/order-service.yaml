@@ -1,0 +1,44 @@
+# =============================================================================
+# order-service — конфигурация
+# =============================================================================
+# Секреты НЕ здесь: APP_SECRET, POSTGRES_PASSWORD (из Secret).
+# =============================================================================
+
+app:
+  name: "order-service"
+  version: "v1.0.0"
+
+{{ include "ecommerce-shop.postgresBlock" (dict "root" . "inst" "order") }}
+
+http:
+  host: "0.0.0.0"
+  port: {{ .svc.http.port | quote }}
+  readTimeout: 10s
+  writeTimeout: 10s
+  maxHeaderBytes: 1
+  bodyLimitBytes: 4
+  allowedOrigins:
+{{ include "ecommerce-shop.allowedOrigins" (dict "root" . "svc" .svc) }}
+
+slog:
+  level: {{ .Values.logging.level | quote }}
+  format: {{ .Values.logging.format | quote }}
+  add_source: {{ .Values.logging.addSource }}
+
+{{ include "ecommerce-shop.kafkaConsumerBlock" (dict "root" . "key" "inventoryCreatedConsumer" "groupID" "order-service" "topic" "inventory.reserved" "dlqTopic" "inventory.reserved.dlq") }}
+
+{{ include "ecommerce-shop.kafkaConsumerBlock" (dict "root" . "key" "inventoryCancelledConsumer" "groupID" "order-service" "topic" "inventory.reservation-failed" "dlqTopic" "inventory.reservation-failed.dlq") }}
+
+{{ include "ecommerce-shop.outboxBlock" (dict "root" . "key" "order_created_outbox") }}
+
+{{ include "ecommerce-shop.outboxBlock" (dict "root" . "key" "order_cancell_inventory_outbox") }}
+
+{{ include "ecommerce-shop.kafkaProducerBlock" (dict "root" . "name" "order-service") }}
+
+schema_registry:
+  url: {{ .Values.dependencies.schemaRegistry.url | quote }}
+
+product_grpc_client:
+  addr: "{{ (index .Values.dependencies.services "product-service").host }}:{{ (index .Values.dependencies.services "product-service").grpcPort }}"
+
+{{ include "ecommerce-shop.telemetryBlock" (dict "root" . "name" "order-service") }}

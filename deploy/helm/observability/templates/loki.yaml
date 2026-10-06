@@ -1,0 +1,182 @@
+{{- $c := .Values.loki -}}
+{{- if $c.enabled -}}
+{{- $component := "loki" -}}
+{{- $name := include "observability.componentName" (dict "root" . "component" $component) -}}
+{{- $labels := include "observability.componentLabels" (dict "root" . "component" $component) -}}
+{{- $selector := include "observability.selectorLabels" (dict "root" . "component" $component) -}}
+{{- $saName := include "observability.serviceAccountName" (dict "root" . "component" $component) -}}
+{{- if $c.serviceAccount.create }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $saName }}
+  labels:
+    {{- $labels | nindent 4 }}
+  {{- with $c.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+automountServiceAccountToken: false
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-config
+  labels:
+    {{- $labels | nindent 4 }}
+data:
+  loki.yaml: |
+    {{- $c.config | nindent 4 }}
+---
+# Headless Service — управляющий (governing) для StatefulSet: обеспечивает
+# DNS-идентичность пода (<pod>.<svc>) и корректную семантику spec.serviceName.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-headless
+  labels:
+    {{- include "observability.componentLabels" (dict "root" $ "component" $component) | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: http
+      port: 3100
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "observability.selectorLabels" (dict "root" $ "component" $component) | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  serviceName: {{ $name }}-headless
+  replicas: {{ $c.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      {{- $selector | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- $selector | nindent 8 }}
+      annotations:
+        checksum/config: {{ include "observability.configChecksum" (dict "root" . "component" $component "config" $c.config) }}
+        {{- with $c.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ $saName }}
+      automountServiceAccountToken: false
+      {{- include "observability.imagePullSecrets" (dict "root" . "component" $component) | nindent 6 }}
+      securityContext:
+        {{- toYaml $c.podSecurityContext | nindent 8 }}
+      containers:
+        - name: loki
+          image: {{ include "observability.image" (dict "root" . "component" $component) | quote }}
+          imagePullPolicy: {{ $c.image.pullPolicy }}
+          args:
+            - "-config.file=/etc/loki/loki.yaml"
+          ports:
+            - name: http
+              containerPort: {{ $c.service.httpPort }}
+              protocol: TCP
+            - name: grpc
+              containerPort: {{ $c.service.grpcPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $c.securityContext | nindent 12 }}
+          {{- with $c.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/loki
+              readOnly: true
+            - name: data
+              mountPath: /loki
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}-config
+        {{- if not $c.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+      {{- with $c.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $c.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $c.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if $c.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- $labels | nindent 10 }}
+        {{- with $c.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes:
+          - {{ $c.persistence.accessMode | default "ReadWriteOnce" }}
+        {{- if $c.persistence.storageClass }}
+        storageClassName: {{ $c.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $c.persistence.size }}
+  {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  type: {{ $c.service.type }}
+  selector:
+    {{- $selector | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $c.service.httpPort }}
+      targetPort: http
+      protocol: TCP
+    - name: grpc
+      port: {{ $c.service.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+{{- end }}

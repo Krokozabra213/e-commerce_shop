@@ -1,0 +1,216 @@
+{{- if .Values.mongodb.enabled }}
+{{- $mongo := .Values.mongodb }}
+{{- $component := "mongodb" }}
+{{- if and $mongo.auth.enabled (not $mongo.auth.existingSecret) }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $mongo.auth.secretName }}
+  labels:
+    {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "datastore") | nindent 4 }}
+type: Opaque
+data:
+  {{ $mongo.auth.rootUsernameKey }}: {{ $mongo.auth.rootUsername | b64enc | quote }}
+  {{ $mongo.auth.rootPasswordKey }}: {{ $mongo.auth.rootPassword | b64enc | quote }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $mongo.serviceName }}
+  labels:
+    {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "datastore") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: mongodb
+      port: {{ $mongo.service.port }}
+      targetPort: mongodb
+      protocol: TCP
+  selector:
+    {{- include "infra.selectorLabels" (dict "root" $ "component" $component) | nindent 4 }}
+---
+# Headless Service — управляющий для StatefulSet (см. postgresql.yaml).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $mongo.serviceName }}-headless
+  labels:
+    {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "datastore") | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: mongodb
+      port: {{ $mongo.service.port }}
+      targetPort: mongodb
+      protocol: TCP
+  selector:
+    {{- include "infra.selectorLabels" (dict "root" $ "component" $component) | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $mongo.serviceName }}
+  labels:
+    {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "datastore") | nindent 4 }}
+spec:
+  serviceName: {{ $mongo.serviceName }}-headless
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "infra.selectorLabels" (dict "root" $ "component" $component) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "datastore") | nindent 8 }}
+        {{- with $mongo.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        ecommerce.io/config-hash: {{ (printf "%v|%v|%v" $mongo.auth.database $mongo.service.port $mongo.auth.enabled) | sha256sum | trunc 16 | quote }}
+        {{- with $mongo.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "infra.imagePullSecrets" $ | nindent 6 }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        {{- toYaml $mongo.podSecurityContext | nindent 8 }}
+      containers:
+        - name: mongodb
+          image: {{ include "infra.image" (dict "root" $ "image" $mongo.image) }}
+          imagePullPolicy: {{ include "infra.imagePullPolicy" $ }}
+          # "mongod" добавляется entrypoint'ом автоматически, т.к. args начинаются с "-".
+          args:
+            {{- if $mongo.auth.enabled }}
+            - "--auth"
+            {{- end }}
+            - "--bind_ip_all"
+          ports:
+            - name: mongodb
+              containerPort: 27017
+              protocol: TCP
+          env:
+            {{- if $mongo.auth.enabled }}
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ if $mongo.auth.existingSecret }}{{ $mongo.auth.existingSecret }}{{ else }}{{ $mongo.auth.secretName }}{{ end }}
+                  key: {{ $mongo.auth.rootUsernameKey }}
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ if $mongo.auth.existingSecret }}{{ $mongo.auth.existingSecret }}{{ else }}{{ $mongo.auth.secretName }}{{ end }}
+                  key: {{ $mongo.auth.rootPasswordKey }}
+            {{- end }}
+            - name: MONGO_INITDB_DATABASE
+              value: {{ $mongo.auth.database | quote }}
+          startupProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                {{- if $mongo.auth.enabled }}
+                - >-
+                  exec mongosh --quiet --host 127.0.0.1 --port 27017
+                  --username "$MONGO_INITDB_ROOT_USERNAME"
+                  --password "$MONGO_INITDB_ROOT_PASSWORD"
+                  --authenticationDatabase admin
+                  --eval 'db.adminCommand({ ping: 1 }).ok' | grep -q 1
+                {{- else }}
+                - >-
+                  exec mongosh --quiet --host 127.0.0.1 --port 27017
+                  --eval 'db.adminCommand({ ping: 1 }).ok' | grep -q 1
+                {{- end }}
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                {{- if $mongo.auth.enabled }}
+                - >-
+                  exec mongosh --quiet --host 127.0.0.1 --port 27017
+                  --username "$MONGO_INITDB_ROOT_USERNAME"
+                  --password "$MONGO_INITDB_ROOT_PASSWORD"
+                  --authenticationDatabase admin
+                  --eval 'db.adminCommand({ ping: 1 }).ok' | grep -q 1
+                {{- else }}
+                - >-
+                  exec mongosh --quiet --host 127.0.0.1 --port 27017
+                  --eval 'db.adminCommand({ ping: 1 }).ok' | grep -q 1
+                {{- end }}
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                {{- if $mongo.auth.enabled }}
+                - >-
+                  exec mongosh --quiet --host 127.0.0.1 --port 27017
+                  --username "$MONGO_INITDB_ROOT_USERNAME"
+                  --password "$MONGO_INITDB_ROOT_PASSWORD"
+                  --authenticationDatabase admin
+                  --eval 'db.adminCommand({ ping: 1 }).ok' | grep -q 1
+                {{- else }}
+                - >-
+                  exec mongosh --quiet --host 127.0.0.1 --port 27017
+                  --eval 'db.adminCommand({ ping: 1 }).ok' | grep -q 1
+                {{- end }}
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 5
+          {{- include "infra.resources" $mongo.resources | nindent 10 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+      {{- if not $mongo.persistence.enabled }}
+      volumes:
+        - name: data
+          emptyDir: {}
+      {{- end }}
+      {{- with $mongo.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $mongo.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $mongo.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if $mongo.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "datastore") | nindent 10 }}
+      spec:
+        accessModes:
+          {{- toYaml $mongo.persistence.accessModes | nindent 10 }}
+        {{- if $mongo.persistence.storageClass }}
+        storageClassName: {{ $mongo.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $mongo.persistence.size | quote }}
+  {{- end }}
+{{- end }}

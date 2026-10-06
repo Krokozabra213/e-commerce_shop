@@ -1,0 +1,291 @@
+{{- /*
+Deployment + Service для каждого включённого сервиса.
+
+ВНИМАНИЕ: Service называется КОРОТКО (== ключ сервиса, без префикса релиза).
+На эти имена ссылаются конфиги (auth-service:8100, inventory-service:44100).
+Менять имена нельзя без правки files/configs/*.yaml.
+*/ -}}
+{{- $root := . }}
+{{- $secretName := include "ecommerce-shop.secretName" $root }}
+{{- $saName := include "ecommerce-shop.serviceAccountName" $root }}
+{{- $defaults := $root.Values.defaults }}
+{{- range $name, $svc := $root.Values.services }}
+{{- if $svc.enabled }}
+{{- $svcSecrets := $svc.secrets | default dict }}
+
+{{- /* Значения с фолбэком на defaults (hasKey — чтобы false не терялся). */ -}}
+{{- $resources := $defaults.resources }}
+{{- if hasKey $svc "resources" }}{{ $resources = $svc.resources }}{{ end }}
+{{- $podSecurityContext := $defaults.podSecurityContext }}
+{{- if hasKey $svc "podSecurityContext" }}{{ $podSecurityContext = $svc.podSecurityContext }}{{ end }}
+{{- $securityContext := $defaults.securityContext }}
+{{- if hasKey $svc "securityContext" }}{{ $securityContext = $svc.securityContext }}{{ end }}
+{{- $terminationGracePeriodSeconds := $defaults.terminationGracePeriodSeconds }}
+{{- if hasKey $svc "terminationGracePeriodSeconds" }}{{ $terminationGracePeriodSeconds = $svc.terminationGracePeriodSeconds }}{{ end }}
+{{- /* autoscaling может отсутствовать вовсе — не падаем на nil. */ -}}
+{{- $autoscaling := $svc.autoscaling | default dict }}
+{{- $replicaCount := $svc.replicaCount | default 1 }}
+
+{{- /* Хэш конфига -> рестарт подов при изменении конфигурации. */ -}}
+{{- $file := printf "files/configs/%s.yaml" $name }}
+{{- $ctx := dict "Values" $root.Values "Chart" $root.Chart "Release" $root.Release "svc" $svc "name" $name }}
+{{- $configHash := tpl ($root.Files.Get $file) $ctx | sha256sum }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "ecommerce-shop.componentLabels" (dict "root" $root "name" $name) | nindent 4 }}
+  {{- with $svc.serviceAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ $svc.http.port }}
+      targetPort: http
+      protocol: TCP
+    {{- if $svc.grpc }}
+    - name: grpc
+      port: {{ $svc.grpc.port }}
+      targetPort: grpc
+      protocol: TCP
+    {{- end }}
+  selector:
+    {{- include "ecommerce-shop.selectorLabels" (dict "root" $root "name" $name) | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "ecommerce-shop.componentLabels" (dict "root" $root "name" $name) | nindent 4 }}
+spec:
+  {{- if not $autoscaling.enabled }}
+  replicas: {{ $replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "ecommerce-shop.selectorLabels" (dict "root" $root "name" $name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ecommerce-shop.componentLabels" (dict "root" $root "name" $name) | nindent 8 }}
+        {{- with $svc.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ $configHash | quote }}
+        {{- with $root.Values.global.commonAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with $svc.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ $saName }}
+      automountServiceAccountToken: false
+      {{- with $root.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ $terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml $podSecurityContext | nindent 8 }}
+      {{- with $svc.waitFor }}
+      initContainers:
+        {{- range . }}
+        {{- include "ecommerce-shop.waitContainer" (dict "root" $root "item" .) | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: {{ $name }}
+          image: {{ include "ecommerce-shop.image" (dict "root" $root "image" $svc.image) }}
+          imagePullPolicy: {{ include "ecommerce-shop.imagePullPolicy" $root }}
+          {{- with $svc.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $svc.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ $svc.http.port }}
+              protocol: TCP
+            {{- if $svc.grpc }}
+            - name: grpc
+              containerPort: {{ $svc.grpc.port }}
+              protocol: TCP
+            {{- end }}
+          env:
+            # ENV выбирает файл configs/<ENV>.yaml, APP_ENV — AppConfig.ENV.
+            - name: ENV
+              value: {{ $root.Values.global.environment | quote }}
+            - name: APP_ENV
+              value: {{ $root.Values.global.environment | quote }}
+            # AppConfig.Secret (env-required).
+            - name: APP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: app-secret
+            {{- if $svc.database }}
+            # PostgresConfig.Password (env-required).
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: {{ printf "postgres-%s-password" $svc.database }}
+            {{- end }}
+            {{- if $svcSecrets.redisPassword }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: redis-password
+            {{- end }}
+            {{- if $svcSecrets.mongodbUri }}
+            # MongoDBConfig.URI имеет yaml:"-", поэтому задаётся ТОЛЬКО через env.
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: mongodb-uri
+            {{- end }}
+            {{- if $svcSecrets.oauth }}
+            # Поля OAuthProviderConfig помечены env-required и валидируются
+            # ВСЕГДА, даже при oauth.*.enabled=false.
+            - name: OAUTH_GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: oauth-google-client-id
+            - name: OAUTH_GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: oauth-google-client-secret
+            - name: OAUTH_GOOGLE_REDIRECT_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: oauth-google-redirect-url
+            - name: OAUTH_GITHUB_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: oauth-github-client-id
+            - name: OAUTH_GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: oauth-github-client-secret
+            - name: OAUTH_GITHUB_REDIRECT_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: oauth-github-redirect-url
+            {{- end }}
+            {{- with $svc.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with $svc.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if $defaults.probes.startup.enabled }}
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: {{ $defaults.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ $defaults.probes.startup.timeoutSeconds }}
+            failureThreshold: {{ $defaults.probes.startup.failureThreshold }}
+          {{- end }}
+          {{- if $defaults.probes.liveness.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: {{ $defaults.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ $defaults.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ $defaults.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ $defaults.probes.liveness.failureThreshold }}
+          {{- end }}
+          {{- if $defaults.probes.readiness.enabled }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: {{ $defaults.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ $defaults.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ $defaults.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ $defaults.probes.readiness.failureThreshold }}
+          {{- end }}
+          {{- with $resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml $securityContext | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /app/configs
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            {{- if $svcSecrets.jwtPrivateKey }}
+            - name: jwt-key
+              mountPath: /etc/ecommerce/certs
+              readOnly: true
+            {{- end }}
+            {{- with $svc.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "ecommerce-shop.configMapName" (dict "root" $root "name" $name) }}
+        - name: tmp
+          emptyDir: {}
+        {{- if $svcSecrets.jwtPrivateKey }}
+        - name: jwt-key
+          secret:
+            secretName: {{ $secretName }}
+            defaultMode: 0440
+            items:
+              - key: jwt-private-key
+                path: jwt-private.pem
+        {{- end }}
+        {{- with $svc.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $svc.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $svc.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $svc.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $svc.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- end }}

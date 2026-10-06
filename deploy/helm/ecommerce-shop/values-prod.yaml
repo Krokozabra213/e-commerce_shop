@@ -1,0 +1,297 @@
+# =============================================================================
+# ecommerce-shop — production
+# =============================================================================
+# Предполагается:
+#   * образы собраны и запушены в реестр (см. scripts/build-images.sh);
+#   * секреты созданы заранее (secrets.create=false);
+#   * базы/брокер — внешние (managed) ИЛИ infra-чарт, установленный отдельно.
+#
+# Создание Secret'а (пример):
+#   kubectl -n ecommerce create secret generic ecommerce-shop-secrets \
+#     --from-literal=app-secret="$(openssl rand -hex 32)" \
+#     --from-literal=postgres-auth-password="$(openssl rand -hex 24)" \
+#     --from-literal=postgres-user-password="$(openssl rand -hex 24)" \
+#     --from-literal=postgres-inventory-password="$(openssl rand -hex 24)" \
+#     --from-literal=postgres-order-password="$(openssl rand -hex 24)" \
+#     --from-literal=redis-password="$(openssl rand -hex 24)" \
+#     --from-literal=mongodb-uri="mongodb://user:pass@mongo-0:27017,mongo-1:27017/products?replicaSet=rs0&authSource=admin" \
+#     --from-literal=jwt-private-key="$(cat services/auth-service/certs/jwt-private.pem)" \
+#     --from-literal=oauth-google-client-id="..." \
+#     --from-literal=oauth-google-client-secret="..." \
+#     --from-literal=oauth-google-redirect-url="https://api.example.com/api/v1/auth/oauth/google/callback" \
+#     --from-literal=oauth-github-client-id="..." \
+#     --from-literal=oauth-github-client-secret="..." \
+#     --from-literal=oauth-github-redirect-url="https://api.example.com/api/v1/auth/oauth/github/callback"
+# =============================================================================
+
+global:
+  # Только хост реестра! Путь/проект — в image.repository каждого сервиса
+  # ("ecommerce/api-gateway"), итог: registry.example.com/ecommerce/api-gateway:1.0.0
+  imageRegistry: "registry.example.com"
+  imagePullSecrets:
+    - name: registry-credentials
+  imagePullPolicy: IfNotPresent
+  environment: "prod"
+  # Обязательно: init-контейнеры не должны ждать вечно.
+  waitTimeoutSeconds: 300
+  commonLabels:
+    app.kubernetes.io/environment: prod
+
+logging:
+  level: "info"
+  format: "json"
+  addSource: false
+
+observability:
+  enabled: true
+  otel:
+    # Короткое DNS-имя: deploy.sh/Makefile ставят observability-чарт в ТОТ ЖЕ
+    # namespace, что и приложение (NAMESPACE=ecommerce). Если observability
+    # живёт в отдельном namespace (например, ставят вручную в "observability"),
+    # укажите полное имя: otel-collector.observability.svc.cluster.local:4317
+    endpoint: "otel-collector:4317"
+    insecure: true
+  logs: true
+  metrics: true
+  traces: true
+  tracesSampleRate: 0.1
+  logToStdout: true
+  sampleLogs: false
+
+# -----------------------------------------------------------------------------
+# Секреты: НЕ через чарт.
+# -----------------------------------------------------------------------------
+secrets:
+  create: false
+  existingSecret: "ecommerce-shop-secrets"
+
+# -----------------------------------------------------------------------------
+# Внешние (managed) зависимости. Замените на свои адреса.
+# Если используете infra-чарт в этом же кластере — оставьте короткие имена
+# (auth-postgres, redis, mongodb, kafka, schema-registry).
+# -----------------------------------------------------------------------------
+dependencies:
+  postgres:
+    auth:
+      host: "auth-db.internal.example.com"
+      port: "5432"
+      username: "ecommerce_auth"
+      database: "auth"
+      sslMode: "require"
+    inventory:
+      host: "inventory-db.internal.example.com"
+      port: "5432"
+      username: "ecommerce_inventory"
+      database: "inventory"
+      sslMode: "require"
+    order:
+      host: "order-db.internal.example.com"
+      port: "5432"
+      username: "ecommerce_order"
+      database: "order"
+      sslMode: "require"
+    user:
+      host: "user-db.internal.example.com"
+      port: "5432"
+      username: "ecommerce_user"
+      database: "user"
+      sslMode: "require"
+
+  redis:
+    host: "redis.internal.example.com"
+    port: "6379"
+    database: 0
+
+  mongodb:
+    # URI целиком берётся из Secret'а (ключ mongodb-uri), поля ниже — только
+    # для документации/если задаёте dependencies.mongodb.uri.
+    host: "mongo.internal.example.com"
+    port: "27017"
+    username: "ecommerce"
+    database: "products"
+
+  kafka:
+    # Несколько брокеров через запятую.
+    brokers: "kafka-0.internal.example.com:9092,kafka-1.internal.example.com:9092,kafka-2.internal.example.com:9092"
+
+  schemaRegistry:
+    url: "https://schema-registry.internal.example.com"
+
+  services:
+    api-gateway:
+      host: "api-gateway"
+      port: "4000"
+    auth-service:
+      host: "auth-service"
+      port: "8100"
+    user-service:
+      host: "user-service"
+      port: "8200"
+    product-service:
+      host: "product-service"
+      port: "8300"
+      grpcPort: "44400"
+    inventory-service:
+      host: "inventory-service"
+      port: "8400"
+      grpcPort: "44100"
+    order-service:
+      host: "order-service"
+      port: "8600"
+
+auth:
+  jwt:
+    accessTTL: 15m
+    refreshTTL: 720h
+  oauth:
+    google:
+      enabled: true
+    github:
+      enabled: true
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/proxy-body-size: "8m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+networkPolicy:
+  enabled: true
+  defaultDenyIngress: true
+
+migrations:
+  enabled: true
+  # Secret уже существует, поэтому можно мигрировать ДО выката подов.
+  hook: "pre-install,pre-upgrade"
+  backoffLimit: 2
+  activeDeadlineSeconds: 1800
+
+services:
+  api-gateway:
+    replicaCount: 3
+    image:
+      tag: "1.0.0"
+    autoscaling:
+      enabled: true
+      minReplicas: 3
+      maxReplicas: 20
+      targetCPUUtilizationPercentage: 65
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+            - type: Percent
+              value: 50
+              periodSeconds: 60
+    pdb:
+      enabled: true
+      maxUnavailable: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/component: api-gateway
+    ingress:
+      enabled: true
+      host: "api.example.com"
+      tls:
+        enabled: true
+        secretName: "api-example-com-tls"
+
+  auth-service:
+    replicaCount: 2
+    image:
+      tag: "1.0.0"
+    pdb:
+      enabled: true
+      maxUnavailable: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/component: auth-service
+
+  user-service:
+    replicaCount: 2
+    image:
+      tag: "1.0.0"
+    pdb:
+      enabled: true
+      maxUnavailable: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+  product-service:
+    replicaCount: 3
+    image:
+      tag: "1.0.0"
+    autoscaling:
+      enabled: true
+      minReplicas: 3
+      maxReplicas: 15
+      targetCPUUtilizationPercentage: 70
+    pdb:
+      enabled: true
+      maxUnavailable: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: "2"
+        memory: 1Gi
+
+  inventory-service:
+    replicaCount: 2
+    image:
+      tag: "1.0.0"
+    pdb:
+      enabled: true
+      maxUnavailable: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  order-service:
+    replicaCount: 2
+    image:
+      tag: "1.0.0"
+    pdb:
+      enabled: true
+      maxUnavailable: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
