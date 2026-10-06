@@ -119,3 +119,57 @@ jobs:
       - name: Dump testcontainers logs on failure
         if: failure()
         run: docker ps -a --filter "label=org.testcontainers=true" || true
+
+  codegen:
+    name: Codegen check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.6'
+          cache-dependency-path: '**/go.sum'
+
+      - name: Install buf
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          version: '1.50.0'
+
+      - name: Install oapi-codegen
+        run: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest
+
+      - name: Regenerate protos
+        working-directory: api
+        run: |
+          buf lint
+          buf generate
+
+      - name: Regenerate OpenAPI code
+        working-directory: services/product-service
+        run: make generate
+
+      - name: Check generated code is up to date
+        run: |
+          if ! git diff --exit-code; then
+            echo "::error::Generated code is out of date."
+            echo ""
+            echo "Run locally:"
+            echo "  cd api && make proto-gen"
+            echo "  cd services/product-service && make generate"
+            echo ""
+            echo "Then commit the changes."
+            echo ""
+            echo "Files changed:"
+            git diff --stat
+            exit 1
+          fi
+          echo "✅ Generated code is up to date."
+
+      - name: Check proto backward compatibility
+        working-directory: api
+        run: |
+          buf breaking --against 'https://github.com/${{ github.repository }}.git#branch=main'
