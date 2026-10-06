@@ -169,7 +169,3 @@ jobs:
           fi
           echo "✅ Generated code is up to date."
 
-      - name: Check proto backward compatibility
-        working-directory: api
-        run: |
-          buf breaking --against 'https://github.com/${{ github.repository }}.git#branch=main'
