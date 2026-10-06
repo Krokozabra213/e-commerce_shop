@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/testutils"
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/order-service/internal/domain"
 	orderRepository "github.com/Krokozabra213/e-commerce_shop/services/order-service/internal/repository/postgres/order"
 	"github.com/Krokozabra213/e-commerce_shop/services/order-service/migrations"
@@ -120,7 +120,7 @@ func TestPostgresOrderRepository_Create(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		order := newOrder(uuid.New(), uuid.New(), 100000)
 		err = repo.Create(txCtx, order)
@@ -139,7 +139,7 @@ func TestPostgresOrderRepository_Create(t *testing.T) {
 		tx, err := testDB.Pool.Begin(ctx)
 		require.NoError(t, err)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		order := newOrder(uuid.New(), uuid.New(), 75000)
 		require.NoError(t, repo.Create(txCtx, order))
@@ -198,7 +198,7 @@ func TestPostgresOrderRepository_GetByID(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		found, err := repo.GetByID(txCtx, order.ID)
 		require.NoError(t, err)
@@ -263,7 +263,7 @@ func TestPostgresOrderRepository_UpdateStatus(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		err = repo.UpdateStatus(txCtx, order.ID, domain.OrderStatusPaid)
 		require.NoError(t, err)
@@ -283,7 +283,7 @@ func TestPostgresOrderRepository_UpdateStatus(t *testing.T) {
 		tx, err := testDB.Pool.Begin(ctx)
 		require.NoError(t, err)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		require.NoError(t, repo.UpdateStatus(txCtx, order.ID, domain.OrderStatusCancelled))
 		require.NoError(t, tx.Rollback(ctx))
@@ -355,7 +355,7 @@ func TestPostgresOrderRepository_CreateItems(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		items := []domain.OrderItem{
 			newOrderItem(order.ID, "prod-1", 5, 10000),
@@ -380,7 +380,7 @@ func TestPostgresOrderRepository_CreateItems(t *testing.T) {
 		tx, err := testDB.Pool.Begin(ctx)
 		require.NoError(t, err)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		items := []domain.OrderItem{
 			newOrderItem(order.ID, "prod-1", 1, 50000),

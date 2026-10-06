@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/testutils"
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/domain"
 	refreshtokenRepo "github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/features/auth/repository/postgres/refresh-token"
 	userRepo "github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/features/auth/repository/postgres/user"
@@ -109,7 +109,7 @@ func TestPostgresrefreshtokenRepository_Create(t *testing.T) {
 			_ = tx.Rollback(ctx)
 		}()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		found, err := repo.GetByTokenHashForUpdate(txCtx, token.TokenHash)
 		require.NoError(t, err)
@@ -128,7 +128,7 @@ func TestPostgresrefreshtokenRepository_Create(t *testing.T) {
 			_ = tx.Rollback(ctx)
 		}()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		user := createTestUser(t, txCtx, userRepository)
 
@@ -153,7 +153,7 @@ func TestPostgresrefreshtokenRepository_Create(t *testing.T) {
 			_ = tx2.Rollback(ctx)
 		}()
 
-		txCtx2 := tx_manager.CtxWithTx(ctx, tx2)
+		txCtx2 := txmanager.CtxWithTx(ctx, tx2)
 
 		found, err := repo.GetByTokenHashForUpdate(txCtx2, token.TokenHash)
 		require.NoError(t, err)
@@ -169,7 +169,7 @@ func TestPostgresrefreshtokenRepository_Create(t *testing.T) {
 		tx, err := testDB.Pool.Begin(ctx)
 		require.NoError(t, err)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		token := &domain.RefreshToken{
 			ID:        uuid.New(),
@@ -191,7 +191,7 @@ func TestPostgresrefreshtokenRepository_Create(t *testing.T) {
 		defer func() {
 			_ = tx2.Rollback(ctx)
 		}()
-		txCtx2 := tx_manager.CtxWithTx(ctx, tx2)
+		txCtx2 := txmanager.CtxWithTx(ctx, tx2)
 
 		_, err = repo.GetByTokenHashForUpdate(txCtx2, token.TokenHash)
 		assert.True(t, errors.Is(err, domain.ErrNotFound))
@@ -262,7 +262,7 @@ func TestPostgresrefreshtokenRepository_GetByTokenHashForUpdate(t *testing.T) {
 			_ = tx.Rollback(ctx)
 		}()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		found, err := repo.GetByTokenHashForUpdate(txCtx, token.TokenHash)
 		require.NoError(t, err)
@@ -285,7 +285,7 @@ func TestPostgresrefreshtokenRepository_GetByTokenHashForUpdate(t *testing.T) {
 		defer func() {
 			_ = tx1.Rollback(ctx)
 		}()
-		txCtx1 := tx_manager.CtxWithTx(ctx, tx1)
+		txCtx1 := txmanager.CtxWithTx(ctx, tx1)
 
 		found1, err := repo.GetByTokenHashForUpdate(txCtx1, token.TokenHash)
 		require.NoError(t, err)
@@ -297,7 +297,7 @@ func TestPostgresrefreshtokenRepository_GetByTokenHashForUpdate(t *testing.T) {
 		defer func() {
 			_ = tx2.Rollback(ctx)
 		}()
-		txCtx2 := tx_manager.CtxWithTx(ctx, tx2)
+		txCtx2 := txmanager.CtxWithTx(ctx, tx2)
 
 		timeoutCtx, cancel := context.WithTimeout(txCtx2, 500*time.Millisecond)
 		defer cancel()
@@ -318,7 +318,7 @@ func TestPostgresrefreshtokenRepository_GetByTokenHashForUpdate(t *testing.T) {
 			_ = tx.Rollback(ctx)
 		}()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		_, err = repo.GetByTokenHashForUpdate(txCtx, "non-existent-hash")
 		require.Error(t, err)
@@ -346,7 +346,7 @@ func TestPostgresrefreshtokenRepository_Revoke(t *testing.T) {
 			_ = tx.Rollback(ctx)
 		}()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		found, err := repo.GetByTokenHashForUpdate(txCtx, token.TokenHash)
 		require.NoError(t, err)
@@ -365,7 +365,7 @@ func TestPostgresrefreshtokenRepository_Revoke(t *testing.T) {
 			_ = tx.Rollback(ctx)
 		}()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		err = repo.Revoke(txCtx, token.TokenHash)
 		require.NoError(t, err)
@@ -379,7 +379,7 @@ func TestPostgresrefreshtokenRepository_Revoke(t *testing.T) {
 		defer func() {
 			_ = tx2.Rollback(ctx)
 		}()
-		txCtx2 := tx_manager.CtxWithTx(ctx, tx2)
+		txCtx2 := txmanager.CtxWithTx(ctx, tx2)
 
 		found, err := repo.GetByTokenHashForUpdate(txCtx2, token.TokenHash)
 		require.NoError(t, err)
@@ -395,7 +395,7 @@ func TestPostgresrefreshtokenRepository_Revoke(t *testing.T) {
 		tx, err := testDB.Pool.Begin(ctx)
 		require.NoError(t, err)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		err = repo.Revoke(txCtx, token.TokenHash)
 		require.NoError(t, err)
@@ -409,7 +409,7 @@ func TestPostgresrefreshtokenRepository_Revoke(t *testing.T) {
 		defer func() {
 			_ = tx2.Rollback(ctx)
 		}()
-		txCtx2 := tx_manager.CtxWithTx(ctx, tx2)
+		txCtx2 := txmanager.CtxWithTx(ctx, tx2)
 
 		found, err := repo.GetByTokenHashForUpdate(txCtx2, token.TokenHash)
 		require.NoError(t, err)
@@ -442,7 +442,7 @@ func TestPostgresrefreshtokenRepository_Revoke(t *testing.T) {
 			_ = tx.Rollback(ctx)
 		}()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		found, err := repo.GetByTokenHashForUpdate(txCtx, token.TokenHash)
 		require.NoError(t, err)

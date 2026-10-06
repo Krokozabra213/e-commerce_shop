@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/testutils"
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/order-service/internal/domain"
 	inboxRepository "github.com/Krokozabra213/e-commerce_shop/services/order-service/internal/repository/postgres/inbox"
 	"github.com/Krokozabra213/e-commerce_shop/services/order-service/migrations"
@@ -137,7 +137,7 @@ func TestPostgresInboxRepository_Create(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		eventID := uuid.New()
 		event := newInboxEvent(eventID, uuid.New(), "payment.failed")
@@ -162,7 +162,7 @@ func TestPostgresInboxRepository_Create(t *testing.T) {
 		tx, err := testDB.Pool.Begin(ctx)
 		require.NoError(t, err)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		eventID := uuid.New()
 		event := newInboxEvent(eventID, uuid.New(), "inventory.reservation-failed")

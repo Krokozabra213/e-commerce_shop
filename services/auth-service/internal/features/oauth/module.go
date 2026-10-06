@@ -5,7 +5,7 @@ import (
 	"time"
 
 	jwtmanager "github.com/Krokozabra213/e-commerce_shop/infra/jwt/manager"
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/config"
 	refreshtokenRepo "github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/features/auth/repository/postgres/refresh-token"
 	userRepo "github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/features/auth/repository/postgres/user"
@@ -42,7 +42,7 @@ func New(deps *Dependencies) *Module {
 	oauthRepo := oauthrepo.NewPostgresOAuthRepository(deps.PGXPool)
 	stateStore := stateStore.NewRedisStateStore(deps.RedisClient)
 
-	txManager := tx_manager.NewPgTxManager(deps.PGXPool)
+	txManager := txmanager.NewPgTxManager(deps.PGXPool)
 	jwtManager, err := jwtmanager.NewRS256Manager(deps.RSAPrivateKey, deps.Config.AuthJWT.AccessTTL, deps.Config.AuthJWT.RefreshTTL, deps.Config.AuthJWT.Issuer)
 	if err != nil {
 		panic(err)

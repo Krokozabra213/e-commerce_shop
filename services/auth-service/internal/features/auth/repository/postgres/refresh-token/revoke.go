@@ -4,14 +4,14 @@ import (
 	"context"
 	"fmt"
 
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/domain"
 	"github.com/jackc/pgx/v5"
 )
 
 func (r *PostgresRefreshTokenRepository) Revoke(ctx context.Context, tokenHash string) error {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		UPDATE refresh_tokens

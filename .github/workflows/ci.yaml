@@ -1,212 +1,3 @@
-#name: CI
-#
-#on:
-#  push:
-#    branches: [main, master]
-#  pull_request:
-#    branches: [main, master]
-#  workflow_dispatch:
-#
-#concurrency:
-#  group: ci-${{ github.workflow }}-${{ github.ref }}
-#  cancel-in-progress: true
-#
-#permissions:
-#  contents: read
-#
-#env:
-#  GO_VERSION: "1.26.4"
-#
-#jobs:
-#  discover:
-#    name: Discover modules
-#    runs-on: ubuntu-latest
-#    outputs:
-#      modules: ${{ steps.collect.outputs.modules }}
-#      integration-modules: ${{ steps.collect.outputs.integration_modules }}
-#    steps:
-#      - uses: actions/checkout@v4
-#
-#      - uses: actions/setup-go@v5
-#        with:
-#          go-version: ${{ env.GO_VERSION }}
-#
-#      - id: collect
-#        name: Read modules from go.work
-#        run: |
-#          set -euo pipefail
-#
-#          # Parse the `use (...)` block of go.work so the matrix always matches the workspace.
-#          modules=$(go work edit -json \
-#            | jq -r '.Use[].DiskPath | ltrimstr("./")' \
-#            | sort)
-#
-#          # Integration tests are opted-in per module via the `integration` build tag.
-#          integration_modules=""
-#          for m in $modules; do
-#            if grep -rql --include='*_test.go' -e '^//go:build integration' "$m"; then
-#              integration_modules="$integration_modules$m"$'\n'
-#            fi
-#          done
-#
-#          {
-#            echo "modules<<EOF"
-#            echo "$modules"
-#            echo "EOF"
-#            echo "integration_modules<<EOF"
-#            printf '%s' "$integration_modules" | sed '/^$/d'
-#            echo "EOF"
-#          } >> "$GITHUB_OUTPUT"
-#
-#          echo "Modules:"; echo "$modules"
-#          echo "Integration modules:"; printf '%s' "$integration_modules" | sed '/^$/d'
-#
-#  lint:
-#    name: Lint (${{ matrix.module }})
-#    needs: discover
-#    runs-on: ubuntu-latest
-#    timeout-minutes: 15
-#    strategy:
-#      fail-fast: false
-#      matrix:
-#        module: ${{ fromJSON(needs.discover.outputs.modules) }}
-#    steps:
-#      - uses: actions/checkout@v4
-#
-#      - uses: actions/setup-go@v5
-#        with:
-#          go-version: ${{ env.GO_VERSION }}
-#          cache: false
-#
-#      - name: Install gofumpt
-#        run: go install mvdan.cc/gofumpt@v0.12.0
-#
-#      - name: Check formatting (gofumpt)
-#        if: matrix.module != 'api'
-#        working-directory: ${{ matrix.module }}
-#        run: |
-#          set -euo pipefail
-#          files=$(gofumpt -extra=group_params -l . || true)
-#          if [ -n "$files" ]; then
-#            echo "::error::The following files are not formatted:"
-#            echo "$files" | sed 's/^/  /'
-#            echo "Run 'make fmt' and commit the result."
-#            exit 1
-#          fi
-#
-#      - name: golangci-lint
-#        uses: golangci/golangci-lint-action@v9
-#        with:
-#          version: v2.13
-#          working-directory: ${{ matrix.module }}
-#          args: --config=${{ github.workspace }}/.golangci.yaml --timeout=5m
-#
-#  build:
-#    name: Build all modules
-#    needs: discover
-#    runs-on: ubuntu-latest
-#    timeout-minutes: 15
-#    steps:
-#      - uses: actions/checkout@v4
-#
-#      - uses: actions/setup-go@v5
-#        with:
-#          go-version: ${{ env.GO_VERSION }}
-#          cache-dependency-path: |
-#            go.work.sum
-#            **/go.sum
-#
-#      - name: go build
-#        run: make build
-#
-#  unit-test:
-#    name: Unit (${{ matrix.module }})
-#    needs: discover
-#    runs-on: ubuntu-latest
-#    timeout-minutes: 20
-#    strategy:
-#      fail-fast: false
-#      matrix:
-#        module: ${{ fromJSON(needs.discover.outputs.modules) }}
-#    steps:
-#      - uses: actions/checkout@v4
-#
-#      - uses: actions/setup-go@v5
-#        with:
-#          go-version: ${{ env.GO_VERSION }}
-#          cache-dependency-path: |
-#            go.work.sum
-#            **/go.sum
-#
-#      - name: go test -race -cover
-#        working-directory: ${{ matrix.module }}
-#        run: |
-#          set -euo pipefail
-#          if [ -z "$(find . -name '*_test.go' -print -quit)" ]; then
-#            echo "No test files, skipping."
-#            exit 0
-#          fi
-#          go test -race -covermode=atomic -coverprofile=coverage.out ./... -count=1
-#
-#      - name: Upload coverage
-#        if: hashFiles(format('{0}/coverage.out', matrix.module)) != ''
-#        uses: actions/upload-artifact@v4
-#        with:
-#          name: coverage-${{ matrix.module }}
-#          path: ${{ matrix.module }}/coverage.out
-#          retention-days: 7
-#
-#  integration-test:
-#    name: Integration (${{ matrix.module }})
-#    needs: discover
-#    runs-on: ubuntu-latest
-#    timeout-minutes: 30
-#    strategy:
-#      fail-fast: false
-#      matrix:
-#        module: ${{ fromJSON(needs.discover.outputs.integration_modules) }}
-#    steps:
-#      - uses: actions/checkout@v4
-#
-#      - uses: actions/setup-go@v5
-#        with:
-#          go-version: ${{ env.GO_VERSION }}
-#          cache-dependency-path: |
-#            go.work.sum
-#            **/go.sum
-#
-#      - name: go test -tags=integration
-#        working-directory: ${{ matrix.module }}
-#        run: go test ./... -tags=integration -count=1 -timeout=600s
-#
-#      - name: Dump testcontainers logs on failure
-#        if: failure()
-#        run: docker ps -a --filter "label=org.testcontainers=true" || true
-#
-#  coverage-summary:
-#    name: Coverage summary
-#    needs: [unit-test]
-#    runs-on: ubuntu-latest
-#    if: always()
-#    steps:
-#      - uses: actions/download-artifact@v4
-#        with:
-#          pattern: coverage-*
-#
-#      - name: Report per-module coverage
-#        run: |
-#          set -euo pipefail
-#          shopt -s nullglob
-#          profiles=(coverage-*/*/coverage.out)
-#          if [ ${#profiles[@]} -eq 0 ]; then
-#            echo "No coverage profiles collected."
-#            exit 0
-#          fi
-#          for p in "${profiles[@]}"; do
-#            printf '%-28s %s\n' "$(basename "$(dirname "$p")")" \
-#              "$(go tool cover -func="$p" | awk '/^total:/ {print $3}')"
-#          done
-
 name: CI
 
 on:
@@ -239,6 +30,10 @@ jobs:
         run: |
           set -e
           for dir in $(go list -m -f '{{.Dir}}'); do
+            if [ -z "$(find "$dir" -name '*.go' -print -quit)" ]; then
+              echo "=== Skipping $dir (no .go files) ==="
+              continue
+            fi
             echo "=== Scanning $dir ==="
             (cd "$dir" && govulncheck ./...)
           done
@@ -273,6 +68,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_LOG_OPTS: "--all"
 
   lint:
     name: Lint & format
@@ -287,7 +83,7 @@ jobs:
           cache-dependency-path: '**/go.sum'
 
       - name: Install golangci-lint
-        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.6.2
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
 
       - name: Lint all modules
         run: make lint
@@ -323,3 +119,53 @@ jobs:
       - name: Dump testcontainers logs on failure
         if: failure()
         run: docker ps -a --filter "label=org.testcontainers=true" || true
+
+  codegen:
+    name: Codegen check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.6'
+          cache-dependency-path: '**/go.sum'
+
+      - name: Install buf
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          version: '1.50.0'
+
+      - name: Install oapi-codegen
+        run: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest
+
+      - name: Regenerate protos
+        working-directory: api
+        run: |
+          buf lint
+          buf generate
+
+      - name: Regenerate OpenAPI code
+        working-directory: services/product-service
+        run: make generate
+
+      - name: Check generated code is up to date
+        run: |
+          if ! git diff --exit-code; then
+            echo "::error::Generated code is out of date."
+            echo ""
+            echo "Run locally:"
+            echo "  cd api && make proto-gen"
+            echo "  cd services/product-service && make generate"
+            echo ""
+            echo "Then commit the changes."
+            echo ""
+            echo "Files changed:"
+            git diff --stat
+            exit 1
+          fi
+          echo "✅ Generated code is up to date."
+

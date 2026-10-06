@@ -4,14 +4,14 @@ import (
 	"context"
 	"fmt"
 
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/user-service/internal/domain"
 	"github.com/jackc/pgx/v5"
 )
 
 func (r *PostgresUserRepository) List(ctx context.Context, filter domain.ListUsersFilter) ([]*domain.User, int, error) {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	var total int
 	countQuery := `SELECT COUNT(*) FROM users WHERE deleted_at IS NULL`

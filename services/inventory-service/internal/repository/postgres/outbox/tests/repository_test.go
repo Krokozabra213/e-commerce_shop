@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/testutils"
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/inventory-service/internal/domain"
 	outboxRepository "github.com/Krokozabra213/e-commerce_shop/services/inventory-service/internal/repository/postgres/outbox"
 	"github.com/Krokozabra213/e-commerce_shop/services/inventory-service/migrations"
@@ -127,7 +127,7 @@ func TestPostgresOutboxRepository_Create(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		payload := map[string]interface{}{"test": "data"}
 		event := newOutboxEvent("Stock", "inventory.stock.updated", payload)
@@ -149,7 +149,7 @@ func TestPostgresOutboxRepository_Create(t *testing.T) {
 		tx, err := testDB.Pool.Begin(ctx)
 		require.NoError(t, err)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		payload := map[string]interface{}{"test": "data"}
 		event := newOutboxEvent("Stock", "inventory.stock.updated", payload)
@@ -431,7 +431,7 @@ func TestPostgresOutboxRepository_FetchUnpublishedByEventType(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx1.Rollback(ctx) }()
 
-		tx1Ctx := tx_manager.CtxWithTx(ctx, tx1)
+		tx1Ctx := txmanager.CtxWithTx(ctx, tx1)
 
 		events1, err := repo.FetchUnpublishedByEventType(tx1Ctx, eventType, 3, "worker-1", 5*time.Second)
 		require.NoError(t, err)
@@ -441,7 +441,7 @@ func TestPostgresOutboxRepository_FetchUnpublishedByEventType(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx2.Rollback(ctx) }()
 
-		tx2Ctx := tx_manager.CtxWithTx(ctx, tx2)
+		tx2Ctx := txmanager.CtxWithTx(ctx, tx2)
 
 		// Worker-2 должен получить оставшиеся 2 события (не заблокированные Worker-1)
 		events2, err := repo.FetchUnpublishedByEventType(tx2Ctx, eventType, 10, "worker-2", 5*time.Second)
@@ -470,7 +470,7 @@ func TestPostgresOutboxRepository_FetchUnpublishedByEventType(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		events, err := repo.FetchUnpublishedByEventType(txCtx, eventType, 10, "worker-1", 5*time.Second)
 		require.NoError(t, err)
@@ -540,7 +540,7 @@ func TestPostgresOutboxRepository_MarkPublished(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		err = repo.MarkPublished(txCtx, []uuid.UUID{event.ID})
 		require.NoError(t, err)
@@ -562,7 +562,7 @@ func TestPostgresOutboxRepository_MarkPublished(t *testing.T) {
 		tx, err := testDB.Pool.Begin(ctx)
 		require.NoError(t, err)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		require.NoError(t, repo.MarkPublished(txCtx, []uuid.UUID{event.ID}))
 		require.NoError(t, tx.Rollback(ctx))

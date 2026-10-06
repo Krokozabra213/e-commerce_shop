@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/testutils"
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/domain"
 	userRepo "github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/features/auth/repository/postgres/user"
 	"github.com/Krokozabra213/e-commerce_shop/services/auth-service/migrations"
@@ -112,7 +112,7 @@ func TestPostgresUserRepository_Create(t *testing.T) {
 			_ = tx.Rollback(ctx)
 		}()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		user := &domain.User{
 			ID:               uuid.New(),
@@ -141,7 +141,7 @@ func TestPostgresUserRepository_Create(t *testing.T) {
 		tx, err := testDB.Pool.Begin(ctx)
 		require.NoError(t, err)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		user := &domain.User{
 			ID:               uuid.New(),
@@ -216,7 +216,7 @@ func TestPostgresUserRepository_GetByEmail(t *testing.T) {
 			_ = tx.Rollback(ctx)
 		}()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		email := uuid.New().String() + "@txemail.com"
 		user := &domain.User{
@@ -283,7 +283,7 @@ func TestPostgresUserRepository_GetByID(t *testing.T) {
 			_ = tx.Rollback(ctx)
 		}()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		user := &domain.User{
 			ID:           uuid.New(),
@@ -339,7 +339,7 @@ func TestPostgresUserRepository_ConfirmEmail(t *testing.T) {
 			_ = tx.Rollback(ctx)
 		}()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		err = repo.ConfirmEmail(txCtx, user.ID)
 		require.NoError(t, err)
@@ -360,7 +360,7 @@ func TestPostgresUserRepository_ConfirmEmail(t *testing.T) {
 		tx, err := testDB.Pool.Begin(ctx)
 		require.NoError(t, err)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		err = repo.ConfirmEmail(txCtx, user.ID)
 		require.NoError(t, err)

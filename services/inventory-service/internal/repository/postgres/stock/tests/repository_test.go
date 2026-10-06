@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/testutils"
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/inventory-service/internal/domain"
 	stockRepository "github.com/Krokozabra213/e-commerce_shop/services/inventory-service/internal/repository/postgres/stock"
 	"github.com/Krokozabra213/e-commerce_shop/services/inventory-service/migrations"
@@ -102,7 +102,7 @@ func TestPostgresStockRepository_Create(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		productID := uuid.New().String()
 		stock := newStock(productID, 50)
@@ -122,7 +122,7 @@ func TestPostgresStockRepository_Create(t *testing.T) {
 		tx, err := testDB.Pool.Begin(ctx)
 		require.NoError(t, err)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		productID := uuid.New().String()
 		stock := newStock(productID, 30)
@@ -176,7 +176,7 @@ func TestPostgresStockRepository_GetByProductID(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		found, err := repo.GetByProductID(txCtx, productID)
 		require.NoError(t, err)
@@ -251,7 +251,7 @@ func TestPostgresStockRepository_GetByProductIDs(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		quantities, err := repo.GetByProductIDs(txCtx, []string{productID1, productID2})
 		require.NoError(t, err)
@@ -309,7 +309,7 @@ func TestPostgresStockRepository_IncreaseQuantity(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		err = repo.IncreaseQuantity(txCtx, productID, 10)
 		require.NoError(t, err)
@@ -330,7 +330,7 @@ func TestPostgresStockRepository_IncreaseQuantity(t *testing.T) {
 		tx, err := testDB.Pool.Begin(ctx)
 		require.NoError(t, err)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		require.NoError(t, repo.IncreaseQuantity(txCtx, productID, 50))
 		require.NoError(t, tx.Rollback(ctx))
@@ -408,7 +408,7 @@ func TestPostgresStockRepository_DecreaseQuantity(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		err = repo.DecreaseQuantity(txCtx, productID, 25)
 		require.NoError(t, err)
@@ -429,7 +429,7 @@ func TestPostgresStockRepository_DecreaseQuantity(t *testing.T) {
 		tx, err := testDB.Pool.Begin(ctx)
 		require.NoError(t, err)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		require.NoError(t, repo.DecreaseQuantity(txCtx, productID, 40))
 		require.NoError(t, tx.Rollback(ctx))

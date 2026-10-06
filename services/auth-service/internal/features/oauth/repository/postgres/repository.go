@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/postgres"
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/auth-service/internal/domain"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,8 +21,8 @@ func NewPostgresOAuthRepository(pool *pgxpool.Pool) *PostgresOAuthRepository {
 }
 
 func (r *PostgresOAuthRepository) Create(ctx context.Context, account *domain.OauthAccount) error {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		INSERT INTO oauth_accounts (
@@ -65,8 +65,8 @@ func (r *PostgresOAuthRepository) GetByProviderAndProviderUserID(
 	provider domain.OAuthProvider,
 	providerUserID string,
 ) (*domain.OauthAccount, error) {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		SELECT 

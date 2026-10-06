@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/user-service/internal/domain"
 	userRepo "github.com/Krokozabra213/e-commerce_shop/services/user-service/internal/repository/postgres/user"
 	"github.com/google/uuid"
@@ -102,7 +102,7 @@ func TestPostgresUserRepository_SoftDelete(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		err = repo.SoftDelete(txCtx, user.ID)
 		require.NoError(t, err)
@@ -121,7 +121,7 @@ func TestPostgresUserRepository_SoftDelete(t *testing.T) {
 		tx, err := testDB.Pool.Begin(ctx)
 		require.NoError(t, err)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		require.NoError(t, repo.SoftDelete(txCtx, user.ID))
 		require.NoError(t, tx.Rollback(ctx))

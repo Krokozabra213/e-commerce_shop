@@ -16,8 +16,10 @@ import (
 )
 
 func (s *ReservationService) Reserve(ctx context.Context, input service.ReserveInput) error {
-	sort.Slice(input.Items, func(i, j int) bool {
-		return input.Items[i].ProductID < input.Items[j].ProductID
+	sorted := make([]service.ProductItem, len(input.Items))
+	copy(sorted, input.Items)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].ProductID < sorted[j].ProductID
 	})
 
 	reserveErr := s.txManager.WithinTransaction(ctx, func(ctx context.Context) error {
@@ -34,9 +36,9 @@ func (s *ReservationService) Reserve(ctx context.Context, input service.ReserveI
 		}
 
 		now := time.Now()
-		reservations := make([]*domain.Reservation, 0, len(input.Items))
+		reservations := make([]*domain.Reservation, 0, len(sorted))
 
-		for _, item := range input.Items {
+		for _, item := range sorted {
 			err := s.stockRepo.DecreaseQuantity(ctx, item.ProductID, item.Quantity)
 			if err != nil {
 				if errors.Is(err, domain.ErrInsufficientStock) {

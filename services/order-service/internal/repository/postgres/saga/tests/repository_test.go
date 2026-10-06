@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/testutils"
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/order-service/internal/domain"
 	orderRepository "github.com/Krokozabra213/e-commerce_shop/services/order-service/internal/repository/postgres/order"
 	sagaRepository "github.com/Krokozabra213/e-commerce_shop/services/order-service/internal/repository/postgres/saga"
@@ -134,7 +134,7 @@ func TestPostgresSagaRepository_Create(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		saga := newSagaState(order.ID, uuid.New())
 		err = sagaRepo.Create(txCtx, saga)
@@ -155,7 +155,7 @@ func TestPostgresSagaRepository_Create(t *testing.T) {
 		tx, err := testDB.Pool.Begin(ctx)
 		require.NoError(t, err)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		saga := newSagaState(order.ID, uuid.New())
 		require.NoError(t, sagaRepo.Create(txCtx, saga))
@@ -306,7 +306,7 @@ func TestPostgresSagaRepository_GetByOrderID(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		found, err := sagaRepo.GetByOrderID(txCtx, order.ID)
 		require.NoError(t, err)
@@ -404,7 +404,7 @@ func TestPostgresSagaRepository_Update(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		saga.CurrentStep = domain.SagaStepCompleted
 		saga.Status = domain.SagaStatusCompleted
@@ -433,7 +433,7 @@ func TestPostgresSagaRepository_Update(t *testing.T) {
 		tx, err := testDB.Pool.Begin(ctx)
 		require.NoError(t, err)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		saga.CurrentStep = domain.SagaStepCompleted
 		saga.Status = domain.SagaStatusFailed
@@ -520,7 +520,7 @@ func TestPostgresSagaRepository_TransactionalConsistency(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		order := newOrder(uuid.New(), uuid.New(), 50000)
 		require.NoError(t, orderRepo.Create(txCtx, order))
@@ -543,7 +543,7 @@ func TestPostgresSagaRepository_TransactionalConsistency(t *testing.T) {
 		tx, err := testDB.Pool.Begin(ctx)
 		require.NoError(t, err)
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		order := newOrder(uuid.New(), uuid.New(), 50000)
 		require.NoError(t, orderRepo.Create(txCtx, order))
@@ -570,7 +570,7 @@ func TestPostgresSagaRepository_TransactionalConsistency(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		txCtx := tx_manager.CtxWithTx(ctx, tx)
+		txCtx := txmanager.CtxWithTx(ctx, tx)
 
 		require.NoError(t, orderRepo.UpdateStatus(txCtx, order.ID, domain.OrderStatusReserved))
 

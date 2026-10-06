@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/Krokozabra213/e-commerce_shop/infra/postgres"
-	tx_manager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
+	txmanager "github.com/Krokozabra213/e-commerce_shop/infra/tx-manager"
 	"github.com/Krokozabra213/e-commerce_shop/services/order-service/internal/domain"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -23,8 +23,8 @@ func NewPostgresOrderRepository(pool *pgxpool.Pool) *PostgresOrderRepository {
 }
 
 func (r *PostgresOrderRepository) Create(ctx context.Context, order *domain.Order) error {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		INSERT INTO orders (
@@ -73,8 +73,8 @@ func (r *PostgresOrderRepository) CreateItems(ctx context.Context, items []domai
 		return nil
 	}
 
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		INSERT INTO order_items (
@@ -129,8 +129,8 @@ func (r *PostgresOrderRepository) CreateItems(ctx context.Context, items []domai
 }
 
 func (r *PostgresOrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Order, error) {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		SELECT 
@@ -161,8 +161,8 @@ func (r *PostgresOrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*d
 }
 
 func (r *PostgresOrderRepository) GetByIdempotencyKey(ctx context.Context, idempotencyKey uuid.UUID) (*domain.Order, error) {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		SELECT 
@@ -193,8 +193,8 @@ func (r *PostgresOrderRepository) GetByIdempotencyKey(ctx context.Context, idemp
 }
 
 func (r *PostgresOrderRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.OrderStatus) error {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		UPDATE orders
@@ -222,8 +222,8 @@ func (r *PostgresOrderRepository) UpdateStatus(ctx context.Context, id uuid.UUID
 }
 
 func (r *PostgresOrderRepository) GetListByUserID(ctx context.Context, userID uuid.UUID) ([]domain.Order, error) {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		SELECT 
@@ -270,8 +270,8 @@ func (r *PostgresOrderRepository) UpdateStatusIfCurrent(
 	newStatus domain.OrderStatus,
 	expectedStatus domain.OrderStatus,
 ) error {
-	tx := tx_manager.ExtractTx(ctx)
-	querier := tx_manager.GetQuerier(r.pool, tx)
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
 
 	query := `
 		UPDATE orders
