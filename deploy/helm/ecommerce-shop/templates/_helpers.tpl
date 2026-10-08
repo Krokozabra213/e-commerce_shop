@@ -69,10 +69,18 @@ app.kubernetes.io/component: {{ .name }}
 {{- /*
 Полное имя образа с учётом global.imageRegistry.
 Использование: include "ecommerce-shop.image" (dict "root" . "image" $svc.image)
+
+Тег выбирается по цепочке: image.tag -> global.imageTag -> .Chart.AppVersion.
+global.imageTag позволяет переопределить тег СРАЗУ для всех сервисов и Job'ов
+миграций:
+  --set global.imageTag=1.2.3
 */ -}}
 {{- define "ecommerce-shop.image" -}}
 {{- $registry := .root.Values.global.imageRegistry | default "" -}}
-{{- $tag := .image.tag | default .root.Chart.AppVersion | toString -}}
+{{- $tag := .image.tag | default "" -}}
+{{- if not $tag -}}{{- $tag = .root.Values.global.imageTag | default "" -}}{{- end -}}
+{{- if not $tag -}}{{- $tag = .root.Chart.AppVersion -}}{{- end -}}
+{{- $tag = $tag | toString -}}
 {{- if $registry -}}
 {{- printf "%s/%s:%s" (trimSuffix "/" $registry) .image.repository $tag -}}
 {{- else -}}

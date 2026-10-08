@@ -1,0 +1,76 @@
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "8m"
+  tls:
+    - secretName: ecommerce-tls
+      hosts:
+        - api.ecommerce.local
+
+defaults:
+  spreadAcrossNodes: true
+
+  allowedOrigins:
+    - "http://localhost:3000" # фронтенд в dev
+    - "http://localhost:8080" # Swagger UI через ingress-туннель
+    - "https://api.ecommerce.local" # Swagger UI по https
+
+services:
+
+  api-gateway:
+    replicaCount: 3
+    autoscaling:
+      enabled: false
+    pdb:
+      enabled: true
+      maxUnavailable: 1
+    ingress:
+      enabled: true
+      host: "api.ecommerce.local"
+      path: "/"
+      pathType: "Prefix"
+      tls:
+        enabled: false
+
+  auth-service:
+    replicaCount: 3
+    autoscaling:
+      enabled: false
+    pdb:
+      enabled: true
+      maxUnavailable: 1
+
+  user-service:
+    replicaCount: 3
+    autoscaling:
+      enabled: false
+    pdb:
+      enabled: true
+      maxUnavailable: 1
+
+  product-service:
+    replicaCount: 3
+    autoscaling:
+      enabled: false
+    pdb:
+      enabled: true
+      maxUnavailable: 1
+
+  inventory-service:
+    replicaCount: 3
+    autoscaling:
+      enabled: false
+    pdb:
+      enabled: true
+      maxUnavailable: 1
+
+  order-service:
+    replicaCount: 3
+    autoscaling:
+      enabled: false
+    pdb:
+      enabled: true
+      maxUnavailable: 1

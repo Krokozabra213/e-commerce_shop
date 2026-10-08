@@ -18,12 +18,17 @@ fullnameOverride: ""
 global:
   # ВНИМАНИЕ: imageRegistry — это ТОЛЬКО хост реестра (например
   # "registry.example.com" или "ghcr.io"). Путь/проект уже входит в
-  # image.repository (например "ecommerce/api-gateway"),
+  # image.repository (например "krokozabra213/api-gateway"),
   # итоговый образ: <imageRegistry>/<image.repository>:<tag>.
   # Пусто = Docker Hub.
   imageRegistry: ""
   imagePullSecrets: []
   imagePullPolicy: IfNotPresent
+  # Тег для ВСЕХ сервисов и образов миграций сразу. Пусто = .Chart.AppVersion
+  # (сейчас "v1.0.0"). Отдельный сервис можно переопределить через
+  # services.<name>.image.tag. Пример для CI:
+  #   --set global.imageTag=${GITHUB_REF_NAME}
+  imageTag: ""
   # Образ для init-контейнеров ожидания зависимостей.
   # ВНИМАНИЕ: это ПОЛНАЯ ссылка на образ, global.imageRegistry к ней НЕ
   # применяется. В приватных реестрах busybox обычно лежит по другому пути
@@ -282,6 +287,14 @@ defaults:
   allowedOrigins:
     - "http://localhost:3000"
 
+  # Мягко распределять реплики сервиса по разным узлам
+  # (topologySpreadConstraints по kubernetes.io/hostname, ScheduleAnyway).
+  # Включать имеет смысл при replicaCount > 1 и кластере из нескольких узлов.
+  # На одноузловом кластере (minikube) безопасно: ScheduleAnyway не блокирует
+  # планирование. У сервиса можно переопределить своим
+  # services.<name>.topologySpreadConstraints.
+  spreadAcrossNodes: false
+
   resources:
     requests:
       cpu: 50m
@@ -416,7 +429,7 @@ services:
     enabled: true
     replicaCount: 2
     image:
-      repository: "ecommerce/api-gateway"
+      repository: "krokozabra213/api-gateway"
       tag: ""            # пусто = .Chart.AppVersion
     http:
       port: 4000
@@ -468,7 +481,7 @@ services:
     enabled: true
     replicaCount: 1
     image:
-      repository: "ecommerce/auth-service"
+      repository: "krokozabra213/auth-service"
       tag: ""
     http:
       port: 8100
@@ -496,7 +509,7 @@ services:
     migration:
       enabled: true
       image:
-        repository: "ecommerce/auth-service-migrate"
+        repository: "krokozabra213/auth-service-migrate"
         tag: ""
     autoscaling:
       enabled: false
@@ -533,7 +546,7 @@ services:
     enabled: true
     replicaCount: 1
     image:
-      repository: "ecommerce/user-service"
+      repository: "krokozabra213/user-service"
       tag: ""
     http:
       port: 8200
@@ -553,7 +566,7 @@ services:
     migration:
       enabled: true
       image:
-        repository: "ecommerce/user-service-migrate"
+        repository: "krokozabra213/user-service-migrate"
         tag: ""
     autoscaling:
       enabled: false
@@ -590,7 +603,7 @@ services:
     enabled: true
     replicaCount: 1
     image:
-      repository: "ecommerce/product-service"
+      repository: "krokozabra213/product-service"
       tag: ""
     http:
       port: 8300
@@ -637,7 +650,7 @@ services:
     enabled: true
     replicaCount: 1
     image:
-      repository: "ecommerce/inventory-service"
+      repository: "krokozabra213/inventory-service"
       tag: ""
     http:
       port: 8400
@@ -658,7 +671,7 @@ services:
     migration:
       enabled: true
       image:
-        repository: "ecommerce/inventory-service-migrate"
+        repository: "krokozabra213/inventory-service-migrate"
         tag: ""
     autoscaling:
       enabled: false
@@ -695,7 +708,7 @@ services:
     enabled: true
     replicaCount: 1
     image:
-      repository: "ecommerce/order-service"
+      repository: "krokozabra213/order-service"
       tag: ""
     http:
       port: 8600
@@ -718,7 +731,7 @@ services:
     migration:
       enabled: true
       image:
-        repository: "ecommerce/order-service-migrate"
+        repository: "krokozabra213/order-service-migrate"
         tag: ""
     autoscaling:
       enabled: false

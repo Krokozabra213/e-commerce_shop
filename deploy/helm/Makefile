@@ -13,8 +13,8 @@
 #   RELEASE_APP=ecommerce           имя релиза приложения
 #   RELEASE_OBS=observability       имя релиза observability
 #   REGISTRY=registry.example.com   хост реестра образов
-#   PROJECT=ecommerce               проект/путь в реестре
-#   TAG=1.0.0                       тег образов
+#   PROJECT=krokozabra213           проект/путь в реестре (владелец GHCR)
+#   TAG=v1.0.0                     тег образов (по умолчанию — appVersion чарта)
 #   ENV=dev|prod                    профиль values
 # =============================================================================
 
@@ -26,17 +26,22 @@ KUBECTL     ?= kubectl
 NAMESPACE   ?= ecommerce
 ENV         ?= dev
 REGISTRY    ?= registry.example.com
-PROJECT     ?= ecommerce
-TAG         ?= 1.0.0
+PROJECT     ?= krokozabra213
+# Тег по умолчанию = appVersion чарта приложения (единый источник истины,
+# см. deploy/helm/ecommerce-shop/Chart.yaml). Переопределяется: make TAG=1.2.3 ...
+TAG         ?= $(shell sed -nE 's/^appVersion:[[:space:]]*"?([^"[:space:]]+)"?[[:space:]]*$$/\1/p' $(CHART_APP)/Chart.yaml | head -1)
 
 RELEASE_INFRA ?= ecommerce-infra
 RELEASE_APP   ?= ecommerce
 RELEASE_OBS   ?= observability
 
 ROOT        := $(shell cd ../.. && pwd)
-CHART_INFRA := ../infra
-CHART_APP   := ../ecommerce-shop
-CHART_OBS   := ../observability
+# Пути относительно каталога этого Makefile (deploy/helm), т.е. при запуске
+# `make -C deploy/helm ...`. Раньше здесь стоял префикс `../`, из-за чего
+# цели искали несуществующие deploy/infra, deploy/ecommerce-shop и т.д.
+CHART_INFRA := infra
+CHART_APP   := ecommerce-shop
+CHART_OBS   := observability
 
 VALUES_INFRA := $(CHART_INFRA)/values-$(ENV).yaml
 VALUES_APP   := $(CHART_APP)/values-$(ENV).yaml
@@ -75,13 +80,13 @@ template: ## Отрендерить все чарты во все профили
 	@ls -la $(BUILD_DIR)
 
 .PHONY: validate
-validate: lint template ## lint + render + проверка контракта конфигов
-	./scripts/validate-config-contract.sh $(VALUES_APP)
+validate: lint template ## lint + render + простая проверка YAML (dev и prod)
+	./scripts/validate-config.sh
 	@echo "OK"
 
 .PHONY: validate-prod
-validate-prod: ## То же, но на values-prod.yaml (без секретов)
-	$(MAKE) ENV=prod validate
+validate-prod: ## То же, но рендер/линт на values-prod.yaml
+	$(MAKE) ENV=prod lint template
 
 .PHONY: kubeconform
 kubeconform: template ## Валидация схем (если установлен kubeconform)
@@ -104,6 +109,11 @@ push-images: ## Собрать и запушить образы
 kind-load: ## Загрузить образы в kind (без реестра)
 	./scripts/build-images.sh
 	kind load docker-image $(shell ./scripts/build-images.sh --print-tags)
+
+.PHONY: minikube-load
+minikube-load: ## Загрузить образы в minikube (без реестра)
+	./scripts/build-images.sh
+	minikube image load $(shell ./scripts/build-images.sh --print-tags)
 
 # -----------------------------------------------------------------------------
 # Установка

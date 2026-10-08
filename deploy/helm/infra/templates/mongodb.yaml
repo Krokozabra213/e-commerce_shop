@@ -78,6 +78,8 @@ spec:
     spec:
       {{- include "infra.imagePullSecrets" $ | nindent 6 }}
       automountServiceAccountToken: false
+      # Лишние service links в поде не нужны (см. kafka.yaml).
+      enableServiceLinks: false
       terminationGracePeriodSeconds: 60
       securityContext:
         {{- toYaml $mongo.podSecurityContext | nindent 8 }}

@@ -28,6 +28,9 @@ spec:
     spec:
       restartPolicy: OnFailure
       automountServiceAccountToken: false
+      # Образ cp-kafka трактует KAFKA_* как конфиг брокера, а service links
+      # подбрасывают KAFKA_PORT/KAFKA_SERVICE_HOST (см. kafka.yaml).
+      enableServiceLinks: false
       {{- with $.Values.global.imagePullSecrets }}
       # Без этого Job не сможет забрать образ из приватного реестра.
       imagePullSecrets:

@@ -76,6 +76,14 @@ spec:
     spec:
       {{- include "infra.imagePullSecrets" $ | nindent 6 }}
       automountServiceAccountToken: false
+      {{- /*
+        ВАЖНО: Service с именем "kafka" заставляет Kubernetes подбрасывать в под
+        service links — KAFKA_PORT=tcp://<clusterIP>:29092, KAFKA_SERVICE_HOST,
+        KAFKA_PORT_29092_TCP* и т.д. Confluent-образ трактует ЛЮБУЮ переменную
+        KAFKA_* как конфиг брокера, поэтому получал port=tcp://... и падал на
+        старте (CrashLoopBackOff, exit code 1). Отключаем service links.
+      */}}
+      enableServiceLinks: false
       terminationGracePeriodSeconds: 60
       securityContext:
         {{- toYaml $kafka.podSecurityContext | nindent 8 }}

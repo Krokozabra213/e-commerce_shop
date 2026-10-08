@@ -25,6 +25,21 @@ Deployment + Service для каждого включённого сервиса
 {{- /* autoscaling может отсутствовать вовсе — не падаем на nil. */ -}}
 {{- $autoscaling := $svc.autoscaling | default dict }}
 {{- $replicaCount := $svc.replicaCount | default 1 }}
+{{- /*
+  Распределение реплик по узлам. Если у сервиса topologySpreadConstraints не
+  задан (пустой список), но включён defaults.spreadAcrossNodes — рендерим
+  constraint с селектором ИМЕННО этого сервиса, чтобы реплики не собрались на
+  одном узле. whenUnsatisfiable: ScheduleAnyway — чтобы одноузловой кластер
+  (minikube) не остался без подов.
+*/ -}}
+{{- $tsc := $svc.topologySpreadConstraints }}
+{{- if and (not $tsc) $defaults.spreadAcrossNodes }}
+{{- $tsc = list (dict
+      "maxSkew" 1
+      "topologyKey" "kubernetes.io/hostname"
+      "whenUnsatisfiable" "ScheduleAnyway"
+      "labelSelector" (dict "matchLabels" (include "ecommerce-shop.selectorLabels" (dict "root" $root "name" $name) | fromYaml))) }}
+{{- end }}
 
 {{- /* Хэш конфига -> рестарт подов при изменении конфигурации. */ -}}
 {{- $file := printf "files/configs/%s.yaml" $name }}
@@ -94,6 +109,13 @@ spec:
     spec:
       serviceAccountName: {{ $saName }}
       automountServiceAccountToken: false
+      {{- /*
+        Отключаем service links. Kubernetes иначе подбрасывает в под переменные
+        вида <SVC>_PORT / <SVC>_SERVICE_HOST, а cleanenv применяет env-переменные
+        ПОВЕРХ YAML из ConfigMap — то есть случайная переменная могла бы молча
+        перекрыть корректное значение из конфига.
+      */}}
+      enableServiceLinks: false
       {{- with $root.Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -283,7 +305,7 @@ spec:
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with $svc.topologySpreadConstraints }}
+      {{- with $tsc }}
       topologySpreadConstraints:
         {{- toYaml . | nindent 8 }}
       {{- end }}

@@ -1,8 +1,6 @@
 # Локальные артефакты инструментов деплоя — НЕ коммитить.
-# Здесь могут оказаться приватные ключи (рендер чарта с --set-file
-# secrets.values.jwtPrivateKey=...), поэтому каталог обязан быть в .gitignore.
+# Здесь могут оказаться приватные ключи (генерация jwt-private.pem,
+# Secret'ы), поэтому каталоги обязаны быть в .gitignore.
 .tools/
-.validate-config-contract/
-.negtest/
 .generated-backup/
 .docker/

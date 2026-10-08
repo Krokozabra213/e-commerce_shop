@@ -1,0 +1,4 @@
+global:
+  imageRegistry: "ghcr.io"
+  imagePullSecrets:
+    - name: ghcr-pull

@@ -50,6 +50,9 @@ spec:
     spec:
       {{- include "infra.imagePullSecrets" $ | nindent 6 }}
       automountServiceAccountToken: false
+      # Service links ломают и Schema Registry: SCHEMA_REGISTRY_PORT=tcp://...
+      # становится конфигом port=... (см. подробный комментарий в kafka.yaml).
+      enableServiceLinks: false
       terminationGracePeriodSeconds: 30
       securityContext:
         {{- toYaml $sr.podSecurityContext | nindent 8 }}

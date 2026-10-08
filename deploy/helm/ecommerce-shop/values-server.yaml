@@ -1,0 +1,149 @@
+# =============================================================================
+# ecommerce-shop — один удалённый сервер: HTTPS + 3 реплики + инфра в кластере
+# =============================================================================
+# Профиль для варианта «всё на одной машине» (k3s + infra-чарт в том же
+# кластере). От values-prod.yaml отличается тем, что адреса зависимостей
+# остаются короткими DNS-именами из values.yaml (auth-postgres, redis, mongodb,
+# kafka, schema-registry), а не managed-хостами вида *.internal.example.com.
+#
+# Порядок:
+#   1) k3s без Traefik        — см. DEPLOY-RUNBOOK.md §13
+#   2) ingress-nginx          — deploy/cluster/ingress-nginx-values.yaml
+#   3) cert-manager + issuer  — deploy/cluster/cluster-issuer-letsencrypt.yaml
+#   4) образы в GHCR          — REGISTRY=ghcr.io PUSH=1 deploy/helm/scripts/build-images.sh
+#   5) pull-secret            — kubectl create secret docker-registry ghcr-pull ...
+#   6) Secret приложения      — deploy/helm/scripts/create-app-secret.sh (с REDIRECT_BASE)
+#   7) infra                  — helm upgrade --install ecommerce-infra deploy/helm/infra
+#   8) приложение:
+#
+#   helm upgrade --install ecommerce deploy/helm/ecommerce-shop -n ecommerce \
+#     -f deploy/helm/ecommerce-shop/values-server.yaml \
+#     --wait --timeout 20m
+#
+# ПЕРЕД УСТАНОВКОЙ замените домен в ДВУХ местах: ingress.tls[0].hosts и
+# services.api-gateway.ingress.host (и имя Secret'а, если хотите).
+# =============================================================================
+
+global:
+  imageRegistry: "ghcr.io"
+  imagePullSecrets:
+    - name: ghcr-pull
+  # ENV/APP_ENV: ключ ConfigMap'а и имя файла configs/<env>.yaml.
+  environment: "prod"
+  waitTimeoutSeconds: 300
+
+# Адреса зависимостей НЕ переопределяем: используются короткие имена из
+# values.yaml, потому что infra-чарт стоит в этом же namespace.
+# Если БД внешние — переопределите dependencies.* (см. values-prod.yaml).
+
+logging:
+  level: "info"
+  format: "json"
+  addSource: false
+
+# true, если дополнительно ставите observability-чарт в тот же namespace
+observability:
+  enabled: false
+
+# В prod Secret создаётся заранее скриптом и не управляется Helm.
+secrets:
+  create: false
+  existingSecret: "ecommerce-shop-secrets"
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    # cert-manager выпустит сертификат сам по этой аннотации
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "8m"
+  tls:
+    - secretName: api-example-com-tls
+      hosts:
+        - api.example.com # ЗАМЕНИТЬ на свой домен
+
+defaults:
+  # Реплики не должны собираться на одном узле. На одноузловом сервере
+  # ScheduleAnyway не мешает планированию.
+  spreadAcrossNodes: true
+
+# ВНИМАНИЕ: на k3s стандартный CNI (flannel) НЕ поддерживает NetworkPolicy,
+# поэтому включение ничего не даст. Для реального default-deny нужен k3s с
+# --flannel-backend=none и Calico/Cilium — тогда поставьте true.
+networkPolicy:
+  enabled: false
+
+migrations:
+  enabled: true
+  # Secret уже создан заранее, поэтому миграции можно выполнять ДО выката подов.
+  hook: "pre-install,pre-upgrade"
+  backoffLimit: 2
+  activeDeadlineSeconds: 1800
+
+auth:
+  oauth:
+    # Флаги косметические (код их не читает), но отражают намерение.
+    # Реальные client_id/secret/redirect берутся из Secret'а.
+    google:
+      enabled: true
+    github:
+      enabled: true
+
+services:
+
+  api-gateway:
+    replicaCount: 3
+    autoscaling:
+      enabled: false
+    pdb:
+      enabled: true
+      maxUnavailable: 1
+    ingress:
+      enabled: true
+      host: "api.example.com" # ЗАМЕНИТЬ на свой домен
+      path: "/"
+      pathType: "Prefix"
+      tls:
+        enabled: false # TLS задан общим блоком ingress.tls выше
+
+  auth-service:
+    replicaCount: 3
+    autoscaling:
+      enabled: false
+    pdb:
+      enabled: true
+      maxUnavailable: 1
+
+  user-service:
+    replicaCount: 3
+    autoscaling:
+      enabled: false
+    pdb:
+      enabled: true
+      maxUnavailable: 1
+
+  product-service:
+    replicaCount: 3
+    autoscaling:
+      enabled: false
+    pdb:
+      enabled: true
+      maxUnavailable: 1
+
+  inventory-service:
+    replicaCount: 3
+    autoscaling:
+      enabled: false
+    pdb:
+      enabled: true
+      maxUnavailable: 1
+
+  order-service:
+    replicaCount: 3
+    autoscaling:
+      enabled: false
+    pdb:
+      enabled: true
+      maxUnavailable: 1

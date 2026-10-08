@@ -12,25 +12,39 @@
 # Использование:
 #   ./build-images.sh                         # только сборка
 #   PUSH=1 ./build-images.sh                  # сборка + push
-#   REGISTRY=ghcr.io PROJECT=myorg TAG=1.2.3 PUSH=1 ./build-images.sh
+#   REGISTRY=ghcr.io PROJECT=krokozabra213 TAG=1.2.3 PUSH=1 ./build-images.sh
 #   ./build-images.sh --print-tags            # напечатать имена образов (для kind)
 #
 # Переменные:
 #   REGISTRY  хост реестра (без пути). Пусто = локальные образы без реестра.
-#   PROJECT   путь/проект в реестре. По умолчанию "ecommerce".
-#   TAG       тег. По умолчанию "1.0.0".
+#   PROJECT   путь/проект в реестре. По умолчанию "krokozabra213" (владелец GHCR).
+#             Должен совпадать с префиксом image.repository в
+#             deploy/helm/ecommerce-shop/values.yaml.
+#   TAG       тег. По умолчанию — appVersion из charts/ecommerce-shop/Chart.yaml.
 #   PUSH      1 = docker push после сборки.
 #   PLATFORM  например linux/amd64.
 # =============================================================================
 set -euo pipefail
 
 REGISTRY="${REGISTRY:-}"
-PROJECT="${PROJECT:-ecommerce}"
-TAG="${TAG:-1.0.0}"
-PUSH="${PUSH:-0}"
-PLATFORM="${PLATFORM:-}"
+PROJECT="${PROJECT:-krokozabra213}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+APP_CHART="${REPO_ROOT}/deploy/helm/ecommerce-shop"
+
+# Тег по умолчанию = appVersion чарта приложения. Так сборка и деплой не могут
+# разъехаться: чарт ищет образы ровно с этим тегом, если image.tag/global.imageTag
+# не заданы явно (см. deploy/helm/ecommerce-shop/Chart.yaml).
+chart_app_version() {
+  local v
+  v="$(sed -nE 's/^appVersion:[[:space:]]*"?([^"[:space:]]+)"?[[:space:]]*$/\1/p' \
+        "${APP_CHART}/Chart.yaml" 2>/dev/null | head -1)"
+  printf '%s' "${v:-1.0.0}"
+}
+
+TAG="${TAG:-$(chart_app_version)}"
+PUSH="${PUSH:-0}"
+PLATFORM="${PLATFORM:-}"
 
 # Сервис с Dockerfile. Миграции собираются только для сервисов с БД.
 SERVICES=(
@@ -60,8 +74,11 @@ image_name() {
 
 all_tags() {
   local svc
-  for svc in "${SERVICES[@]}"; do image_name "${svc}"; done
-  for svc in "${MIGRATION_SERVICES[@]}"; do image_name "${svc}-migrate"; done
+  # Каждое имя — отдельной строкой: вывод используется как список аргументов
+  # (`minikube image load $(build-images.sh --print-tags)`). Без перевода строки
+  # все имена склеились бы в один аргумент.
+  for svc in "${SERVICES[@]}"; do image_name "${svc}"; echo; done
+  for svc in "${MIGRATION_SERVICES[@]}"; do image_name "${svc}-migrate"; echo; done
 }
 
 if [ "${1:-}" = "--print-tags" ]; then
