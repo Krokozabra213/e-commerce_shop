@@ -1,0 +1,57 @@
+Спасибо за установку ecommerce-infra (release: {{ .Release.Name }}, namespace: {{ .Release.Namespace }}).
+
+Включённые компоненты и их DNS-имена внутри namespace:
+
+{{- if .Values.postgresql.enabled }}
+PostgreSQL:
+{{- range $key, $inst := .Values.postgresql.instances }}
+{{- if $inst.enabled }}
+  - {{ $inst.serviceName }}:{{ $.Values.postgresql.service.port }} (база: {{ $inst.database | default $.Values.postgresql.auth.database }})
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if .Values.redis.enabled }}
+Redis:
+  - {{ .Values.redis.serviceName }}:{{ .Values.redis.service.port }}
+{{- end }}
+{{- if .Values.mongodb.enabled }}
+MongoDB:
+  - {{ .Values.mongodb.serviceName }}:{{ .Values.mongodb.service.port }}
+{{- end }}
+{{- if .Values.kafka.enabled }}
+Kafka (KRaft):
+  - {{ .Values.kafka.serviceName }}:{{ .Values.kafka.listeners.internal.port }}
+{{- end }}
+{{- if .Values.schemaRegistry.enabled }}
+Schema Registry:
+  - {{ .Values.schemaRegistry.serviceName }}:{{ .Values.schemaRegistry.service.port }}
+{{- end }}
+
+Проверить статус:
+
+  kubectl get pods,svc -n {{ .Release.Namespace }} -l app.kubernetes.io/part-of=ecommerce-infra
+  kubectl get pvc -n {{ .Release.Namespace }}
+
+Дождаться готовности перед установкой app-чарта:
+
+  kubectl wait --for=condition=ready pod \
+    -l app.kubernetes.io/part-of=ecommerce-infra \
+    -n {{ .Release.Namespace }} --timeout=600s
+
+Дальше:
+
+  helm install ecommerce ./deploy/helm/ecommerce-shop -n {{ .Release.Namespace }} -f ./deploy/helm/ecommerce-shop/values-dev.yaml
+
+ВАЖНО:
+  * PVC, созданные через volumeClaimTemplates, НЕ удаляются вместе с релизом
+    (`helm uninstall` их оставляет). Удалять вручную, если данные больше не нужны.
+{{- $defaults := list }}
+{{- if .Values.postgresql.enabled }}{{ $defaults = append $defaults "PostgreSQL postgres/postgres" }}{{ end }}
+{{- if .Values.redis.enabled }}{{ $defaults = append $defaults "Redis пароль redis" }}{{ end }}
+{{- if .Values.mongodb.enabled }}{{ $defaults = append $defaults "MongoDB admin/admin123" }}{{ end }}
+{{- if $defaults }}
+  * Пароли по умолчанию ({{ join "; " $defaults }}) подходят ТОЛЬКО для
+    локальной разработки. Для prod задайте *.auth.existingSecret и создайте
+    Secret'ы самостоятельно.
+{{- end }}
+

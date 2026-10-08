@@ -1,0 +1,25 @@
+# Patterns to ignore when building packages.
+# This supports shell glob matching, relative path matching, and negation (prefixed with !).
+.DS_Store
+.git/
+.gitignore
+.bzr/
+.hg/
+.hgignore
+.svn/
+# IntelliJ / GoLand
+.idea/
+*.iml
+# Editors
+.vscode/
+*.swp
+*.tmp
+*.bak
+*.orig
+# Helm / CI artifacts
+*.tgz
+ci/
+README.md.gotmpl
+# Local overrides that must never be packaged
+values-local.yaml
+secrets*.yaml

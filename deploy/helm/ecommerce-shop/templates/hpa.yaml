@@ -1,0 +1,48 @@
+{{- /*
+HorizontalPodAutoscaler (autoscaling/v2). Требует metrics-server.
+
+ВАЖНО: если autoscaling.enabled=true, поле `replicas` в Deployment НЕ
+рендерится (см. services.yaml) — иначе `helm upgrade` и HPA будут
+перебивать друг друга.
+*/ -}}
+{{- $root := . }}
+{{- range $name, $svc := $root.Values.services }}
+{{- $as := $svc.autoscaling | default dict }}
+{{- if and $svc.enabled $as.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "ecommerce-shop.componentLabels" (dict "root" $root "name" $name) | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $name }}
+  minReplicas: {{ $as.minReplicas | default 1 }}
+  maxReplicas: {{ required (printf "services.%s.autoscaling.maxReplicas обязателен" $name) $as.maxReplicas }}
+  metrics:
+    {{- if $as.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $as.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if $as.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ $as.targetMemoryUtilizationPercentage }}
+    {{- end }}
+  {{- with $as.behavior }}
+  behavior:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}

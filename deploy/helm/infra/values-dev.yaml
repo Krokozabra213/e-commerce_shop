@@ -1,0 +1,90 @@
+# =============================================================================
+# ecommerce-infra — локальная разработка / minikube / kind
+# =============================================================================
+# Задача: минимум ресурсов, один узел, никаких StorageClass-требований.
+# `helm install ecommerce-infra ./deploy/helm/infra -f values-dev.yaml`
+# =============================================================================
+
+global:
+  imagePullPolicy: IfNotPresent
+
+postgresql:
+  enabled: true
+  auth:
+    username: postgres
+    password: postgres
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+redis:
+  enabled: true
+  auth:
+    enabled: true
+    password: redis
+  persistence:
+    enabled: true
+    size: 512Mi
+  config:
+    appendonly: true
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+mongodb:
+  enabled: true
+  auth:
+    enabled: true
+    rootUsername: admin
+    rootPassword: admin123
+    database: products
+  persistence:
+    enabled: true
+    size: 1Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+kafka:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 2Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  topics:
+    enabled: true
+    partitions: 3
+    replicationFactor: 1
+
+schemaRegistry:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 768Mi

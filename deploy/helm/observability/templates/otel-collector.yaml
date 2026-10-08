@@ -1,0 +1,163 @@
+{{- $c := index .Values "otel-collector" -}}
+{{- if $c.enabled -}}
+{{- $component := "otel-collector" -}}
+{{- $name := include "observability.componentName" (dict "root" . "component" $component) -}}
+{{- $labels := include "observability.componentLabels" (dict "root" . "component" $component) -}}
+{{- $selector := include "observability.selectorLabels" (dict "root" . "component" $component) -}}
+{{- $saName := include "observability.serviceAccountName" (dict "root" . "component" $component) -}}
+{{- if $c.serviceAccount.create }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $saName }}
+  labels:
+    {{- $labels | nindent 4 }}
+  {{- with $c.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+automountServiceAccountToken: false
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-config
+  labels:
+    {{- $labels | nindent 4 }}
+data:
+  otel-collector.yaml: |
+    {{- $c.config | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  replicas: {{ $c.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      {{- $selector | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- $selector | nindent 8 }}
+      annotations:
+        checksum/config: {{ include "observability.configChecksum" (dict "root" . "component" $component "config" $c.config) }}
+        {{- with $c.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ $saName }}
+      automountServiceAccountToken: false
+      {{- include "observability.imagePullSecrets" (dict "root" . "component" $component) | nindent 6 }}
+      securityContext:
+        {{- toYaml $c.podSecurityContext | nindent 8 }}
+      containers:
+        - name: otel-collector
+          image: {{ include "observability.image" (dict "root" . "component" $component) | quote }}
+          imagePullPolicy: {{ $c.image.pullPolicy }}
+          args:
+            - "--config=/etc/otel-collector/otel-collector.yaml"
+          ports:
+            - name: otlp-grpc
+              containerPort: {{ $c.otlpGrpcPort }}
+              protocol: TCP
+            - name: otlp-http
+              containerPort: {{ $c.otlpHttpPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ $c.internalMetricsPort }}
+              protocol: TCP
+            - name: prometheus
+              containerPort: {{ $c.prometheusPort }}
+              protocol: TCP
+            - name: health
+              containerPort: {{ $c.healthPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $c.securityContext | nindent 12 }}
+          {{- with $c.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otel-collector
+              readOnly: true
+            # readOnlyRootFilesystem: true, поэтому даём записываемый /tmp
+            # (нужен, если добавят file-экспортёр/очередь на диск).
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}-config
+        - name: tmp
+          emptyDir: {}
+      {{- with $c.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $c.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $c.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  type: {{ $c.service.type }}
+  selector:
+    {{- $selector | nindent 4 }}
+  ports:
+    - name: otlp-grpc
+      port: {{ $c.otlpGrpcPort }}
+      targetPort: otlp-grpc
+      protocol: TCP
+    - name: otlp-http
+      port: {{ $c.otlpHttpPort }}
+      targetPort: otlp-http
+      protocol: TCP
+    - name: metrics
+      port: {{ $c.internalMetricsPort }}
+      targetPort: metrics
+      protocol: TCP
+    - name: prometheus
+      port: {{ $c.prometheusPort }}
+      targetPort: prometheus
+      protocol: TCP
+    - name: health
+      port: {{ $c.healthPort }}
+      targetPort: health
+      protocol: TCP
+{{- end }}

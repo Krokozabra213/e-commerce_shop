@@ -1,0 +1,51 @@
+{{- /*
+Ingress создаётся, если .Values.ingress.enabled И svc.ingress.enabled.
+Backend — Service сервиса (короткое имя == ключ сервиса).
+*/ -}}
+{{- $root := . }}
+{{- if $root.Values.ingress.enabled }}
+{{- range $name, $svc := $root.Values.services }}
+{{- $ing := $svc.ingress | default dict }}
+{{- if and $svc.enabled $ing.enabled }}
+{{- $svcTls := $ing.tls | default dict }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "ecommerce-shop.componentLabels" (dict "root" $root "name" $name) | nindent 4 }}
+  {{- $annotations := merge (deepCopy ($root.Values.ingress.annotations | default dict)) ($ing.annotations | default dict) }}
+  {{- with $annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $root.Values.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- if or $svcTls.enabled $root.Values.ingress.tls }}
+  tls:
+    {{- if $svcTls.enabled }}
+    - hosts:
+        - {{ required (printf "services.%s.ingress.host обязателен" $name) $ing.host | quote }}
+      secretName: {{ $svcTls.secretName | quote }}
+    {{- end }}
+    {{- with $root.Values.ingress.tls }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
+  rules:
+    - host: {{ required (printf "services.%s.ingress.host обязателен" $name) $ing.host | quote }}
+      http:
+        paths:
+          - path: {{ $ing.path | default "/" | quote }}
+            pathType: {{ $ing.pathType | default "Prefix" }}
+            backend:
+              service:
+                name: {{ $name }}
+                port:
+                  number: {{ required (printf "services.%s.http.port обязателен" $name) $svc.http.port }}
+{{- end }}
+{{- end }}
+{{- end }}

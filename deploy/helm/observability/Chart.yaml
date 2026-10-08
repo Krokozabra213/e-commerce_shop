@@ -1,0 +1,22 @@
+apiVersion: v2
+name: observability
+description: Standalone Helm chart for the E-Commerce Shop observability stack (OTel Collector, Tempo, Loki, Prometheus, Grafana)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+kubeVersion: ">=1.24.0-0"
+keywords:
+  - observability
+  - opentelemetry
+  - tempo
+  - loki
+  - prometheus
+  - grafana
+  - tracing
+  - logging
+  - metrics
+maintainers:
+  - name: E-Commerce Team
+    email: team@ecommerce.example.com
+annotations:
+  category: Monitoring

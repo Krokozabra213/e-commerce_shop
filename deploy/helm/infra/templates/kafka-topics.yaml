@@ -1,0 +1,92 @@
+{{- $topicsCfg := .Values.kafka.topics | default dict }}
+{{- if and .Values.kafka.enabled $topicsCfg.enabled }}
+{{- $kafka := .Values.kafka }}
+{{- $component := "kafka-topics" }}
+{{- $bootstrap := printf "%s:%d" $kafka.serviceName (int $kafka.listeners.internal.port) }}
+{{- $topics := list }}
+{{- range $kafka.topics.list }}
+{{- $topics = append $topics (printf "%s:%d" .name (int (.partitions | default $kafka.topics.partitions))) }}
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "%s-topics" $kafka.serviceName }}
+  labels:
+    {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "bootstrap") | nindent 4 }}
+  annotations:
+    # Job иммутабелен -> пересоздаём при каждом install/upgrade.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 1200
+  template:
+    metadata:
+      labels:
+        {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "bootstrap") | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      # Образ cp-kafka трактует KAFKA_* как конфиг брокера, а service links
+      # подбрасывают KAFKA_PORT/KAFKA_SERVICE_HOST (см. kafka.yaml).
+      enableServiceLinks: false
+      {{- with $.Values.global.imagePullSecrets }}
+      # Без этого Job не сможет забрать образ из приватного реестра.
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml $kafka.podSecurityContext | nindent 8 }}
+      containers:
+        - name: kafka-topics
+          image: {{ include "infra.image" (dict "root" $ "image" $kafka.topics.image) }}
+          imagePullPolicy: {{ include "infra.imagePullPolicy" $ }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+
+              BOOTSTRAP="{{ $bootstrap }}"
+              ATTEMPTS={{ div (int $kafka.topics.waitTimeoutSeconds) 3 }}
+
+              echo "==> waiting for Kafka at ${BOOTSTRAP}"
+              i=0
+              until kafka-topics --bootstrap-server "${BOOTSTRAP}" --list >/dev/null 2>&1; do
+                i=$((i + 1))
+                if [ "$i" -ge "${ATTEMPTS}" ]; then
+                  echo "ERROR: Kafka is not reachable after $((ATTEMPTS * 3))s" >&2
+                  exit 1
+                fi
+                echo "    not ready yet ($i/${ATTEMPTS})..."
+                sleep 3
+              done
+              echo "==> Kafka is reachable"
+
+              for entry in {{ join " " $topics }}; do
+                topic="${entry%%:*}"
+                partitions="${entry##*:}"
+                echo "==> ensuring topic '${topic}' (partitions=${partitions}, rf={{ $kafka.topics.replicationFactor }})"
+                kafka-topics --bootstrap-server "${BOOTSTRAP}" \
+                  --create --if-not-exists \
+                  --topic "${topic}" \
+                  --partitions "${partitions}" \
+                  --replication-factor {{ $kafka.topics.replicationFactor }}
+              done
+
+              echo "==> current topics:"
+              kafka-topics --bootstrap-server "${BOOTSTRAP}" --list
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+{{- end }}

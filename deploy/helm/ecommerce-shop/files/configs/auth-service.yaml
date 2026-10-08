@@ -1,0 +1,64 @@
+# =============================================================================
+# auth-service — конфигурация
+# =============================================================================
+# Секреты НЕ здесь: APP_SECRET, POSTGRES_PASSWORD, REDIS_PASSWORD,
+# OAUTH_*_CLIENT_ID / _CLIENT_SECRET / _REDIRECT_URL, а также приватный ключ
+# JWT (файл) — всё приходит из Secret'а и имеет приоритет над этим файлом.
+# =============================================================================
+
+app:
+  name: "auth-service"
+  version: "v1.0.0"
+
+{{ include "ecommerce-shop.postgresBlock" (dict "root" . "inst" "auth") }}
+
+redis:
+  addr: "{{ .Values.dependencies.redis.host }}:{{ .Values.dependencies.redis.port }}"
+  database: {{ .Values.dependencies.redis.database }}
+  # password -> REDIS_PASSWORD (из Secret)
+
+http:
+  host: "0.0.0.0"
+  port: {{ .svc.http.port | quote }}
+  readTimeout: 10s
+  writeTimeout: 10s
+  maxHeaderBytes: 1
+  bodyLimitBytes: 4
+  allowedOrigins:
+{{ include "ecommerce-shop.allowedOrigins" (dict "root" . "svc" .svc) }}
+
+slog:
+  level: {{ .Values.logging.level | quote }}
+  format: {{ .Values.logging.format | quote }}
+  add_source: {{ .Values.logging.addSource }}
+
+email_verification:
+  emailVerificationTTL: {{ .Values.auth.emailVerification.ttl }}
+  verificationTokenLength: {{ .Values.auth.emailVerification.tokenLength }}
+
+oauth:
+  google:
+    enabled: {{ .Values.auth.oauth.google.enabled }}
+    # clientID / clientSecret / redirectURL -> OAUTH_GOOGLE_* (из Secret)
+  github:
+    enabled: {{ .Values.auth.oauth.github.enabled }}
+    # clientID / clientSecret / redirectURL -> OAUTH_GITHUB_* (из Secret)
+
+auth_jwt:
+  issuer: {{ .Values.auth.jwt.issuer | quote }}
+  algorithm: {{ .Values.auth.jwt.algorithm | quote }}
+  privateKeyPath: {{ .Values.auth.jwt.privateKeyPath | quote }}
+  keyID: {{ .Values.auth.jwt.keyID | quote }}
+  accessTTL: {{ .Values.auth.jwt.accessTTL }}
+  refreshTTL: {{ .Values.auth.jwt.refreshTTL }}
+  rotation:
+    enabled: {{ .Values.auth.jwt.rotation.enabled }}
+
+{{ include "ecommerce-shop.outboxBlock" (dict "root" . "key" "user_created_outbox") }}
+
+{{ include "ecommerce-shop.kafkaProducerBlock" (dict "root" . "name" "auth-service") }}
+
+schema_registry:
+  url: {{ .Values.dependencies.schemaRegistry.url | quote }}
+
+{{ include "ecommerce-shop.telemetryBlock" (dict "root" . "name" "auth-service") }}

@@ -1,0 +1,48 @@
+# =============================================================================
+# inventory-service — конфигурация
+# =============================================================================
+# Секреты НЕ здесь: APP_SECRET, POSTGRES_PASSWORD (из Secret).
+# =============================================================================
+
+app:
+  name: "inventory-service"
+  version: "v1.0.0"
+
+{{ include "ecommerce-shop.postgresBlock" (dict "root" . "inst" "inventory") }}
+
+http:
+  host: "0.0.0.0"
+  port: {{ .svc.http.port | quote }}
+  readTimeout: 10s
+  writeTimeout: 10s
+  maxHeaderBytes: 1
+  bodyLimitBytes: 4
+  allowedOrigins:
+{{ include "ecommerce-shop.allowedOrigins" (dict "root" . "svc" .svc) }}
+
+grpc:
+  host: "0.0.0.0"
+  port: {{ .svc.grpc.port | quote }}
+  readTimeout: 10s
+  writeTimeout: 10s
+  maxHeaderBytes: 1
+
+slog:
+  level: {{ .Values.logging.level | quote }}
+  format: {{ .Values.logging.format | quote }}
+  add_source: {{ .Values.logging.addSource }}
+
+{{ include "ecommerce-shop.kafkaConsumerBlock" (dict "root" . "key" "orderCreatedConsumer" "groupID" "inventory-service" "topic" "order.created" "dlqTopic" "order.created.dlq") }}
+
+{{ include "ecommerce-shop.kafkaConsumerBlock" (dict "root" . "key" "orderCancelledConsumer" "groupID" "inventory-service" "topic" "order.cancel-inventory" "dlqTopic" "order.cancel-inventory.dlq") }}
+
+{{ include "ecommerce-shop.outboxBlock" (dict "root" . "key" "inventory_reserved_outbox") }}
+
+{{ include "ecommerce-shop.outboxBlock" (dict "root" . "key" "inventory_reserv_failed_outbox") }}
+
+{{ include "ecommerce-shop.kafkaProducerBlock" (dict "root" . "name" "inventory-service") }}
+
+schema_registry:
+  url: {{ .Values.dependencies.schemaRegistry.url | quote }}
+
+{{ include "ecommerce-shop.telemetryBlock" (dict "root" . "name" "inventory-service") }}

@@ -1,0 +1,136 @@
+# =============================================================================
+# ecommerce-shop — локальная разработка (minikube / kind / docker-desktop)
+# =============================================================================
+# Установка:
+#   deploy/helm/deploy.sh              # поднимет infra + app
+#
+# Или вручную:
+#   helm install ecommerce ./deploy/helm/ecommerce-shop \
+#     -n ecommerce -f ./deploy/helm/ecommerce-shop/values-dev.yaml \
+#     --set-file secrets.values.jwtPrivateKey=services/auth-service/certs/jwt-private.pem
+#
+# Предполагается, что infra-чарт уже установлен в тот же namespace
+# (иначе init-контейнеры будут ждать Postgres/Redis/Kafka).
+# =============================================================================
+
+global:
+  # ENV/APP_ENV: определяет файл configs/<env>.yaml. В образах есть только dev.yaml,
+  # но мы всё равно монтируем ConfigMap со своим <env>.yaml, поэтому значение
+  # должно совпадать с ключом в ConfigMap (он рендерится из этого же значения).
+  environment: "dev"
+  imagePullPolicy: IfNotPresent
+
+logging:
+  level: "debug"
+  format: "text"
+  addSource: true
+
+observability:
+  enabled: false
+
+secrets:
+  create: true
+  values:
+    appSecret: "dev-secret-change-me"
+    postgres:
+      auth: "postgres"
+      user: "postgres"
+      inventory: "postgres"
+      order: "postgres"
+    redis: "redis"
+    mongodbPassword: "admin123"
+    oauth:
+      google:
+        clientId: "disabled"
+        clientSecret: "disabled"
+        redirectUrl: "http://localhost/oauth/google/callback/disabled"
+      github:
+        clientId: "disabled"
+        clientSecret: "disabled"
+        redirectUrl: "http://localhost/oauth/github/callback/disabled"
+
+auth:
+  oauth:
+    google:
+      enabled: false
+    github:
+      enabled: false
+
+ingress:
+  enabled: true
+  className: "nginx"
+
+networkPolicy:
+  enabled: false
+
+migrations:
+  enabled: true
+
+services:
+  api-gateway:
+    replicaCount: 1
+    # PDB с minAvailable=1 при одной реплике блокирует drain узла.
+    pdb:
+      enabled: false
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+    ingress:
+      enabled: true
+      host: "api.ecommerce.local"
+      tls:
+        enabled: false
+
+  auth-service:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+  user-service:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 25m
+        memory: 32Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+  product-service:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  inventory-service:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+  order-service:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi

@@ -1,0 +1,368 @@
+# =============================================================================
+# ecommerce-infra — values по умолчанию
+# =============================================================================
+# ВАЖНО про имена Service'ов.
+# Имена сервисов НЕ префиксуются именем релиза (`serviceName` в каждой секции).
+# Это сделано осознанно: строки подключения внутри сервисов и внутри конфигов
+# (например `kafka:29092`, `http://schema-registry:8081`) ссылаются на короткие
+# DNS-имена. Благодаря этому app-чарт (`../ecommerce-shop`) и observability-чарт
+# не зависят от имени релиза инфраструктуры.
+# Следствие: в одном namespace может жить только один релиз этого чарта.
+# =============================================================================
+
+nameOverride: ""
+fullnameOverride: ""
+
+global:
+  # Например "registry.example.com/myteam". Пусто = Docker Hub.
+  imageRegistry: ""
+  imagePullSecrets: []
+  imagePullPolicy: IfNotPresent
+  # Образ для init-контейнеров ожидания готовности зависимостей (nc -z).
+  # ВНИМАНИЕ: ПОЛНАЯ ссылка на образ; global.imageRegistry к ней НЕ применяется
+  # (в приватных реестрах busybox обычно лежит по пути library/busybox, а не
+  # там же, где образы приложения).
+  waitImage: "busybox:1.36"
+
+# -----------------------------------------------------------------------------
+# PostgreSQL — отдельный инстанс на каждый сервис (как в docker-compose.yaml).
+# Все инстансы используют общий пользователь/пароль, но каждый имеет свою БД
+# и свой PVC. Пароль можно переопределить персонально для инстанса.
+# -----------------------------------------------------------------------------
+postgresql:
+  enabled: true
+
+  image:
+    repository: postgres
+    tag: "16-alpine"
+
+  service:
+    port: 5432
+
+  auth:
+    username: postgres
+    # Дефолт для всех инстансов. Переопределяется в instances.<key>.password.
+    password: postgres
+    # Если задано — Secret не создаётся, пароли берутся из существующего Secret
+    # по ключам "<key>-password" (auth-password, user-password, ...).
+    existingSecret: ""
+    # Имя создаваемого Secret'а.
+    secretName: "postgresql-credentials"
+
+  # Хранилище. size/storageClass применяются к каждому инстансу.
+  persistence:
+    enabled: true
+    size: 2Gi
+    # Пусто = StorageClass по умолчанию в кластере.
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+
+  # Общие ресурсы для всех инстансов.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+
+  # Дополнительные параметры PostgreSQL (передаются как аргументы -c).
+  # Пример: max_connections: "200"
+  extraConfig: {}
+
+  # Инстансы. Ключ используется в именах ресурсов и в ключах Secret'а.
+  instances:
+    auth:
+      enabled: true
+      # DNS-имя, которое видят сервисы.
+      serviceName: "auth-postgres"
+      database: "postgres"
+      # Пусто = postgresql.auth.password
+      password: ""
+    inventory:
+      enabled: true
+      serviceName: "inventory-postgres"
+      database: "postgres"
+      password: ""
+    order:
+      enabled: true
+      serviceName: "order-postgres"
+      database: "postgres"
+      password: ""
+    user:
+      enabled: true
+      serviceName: "user-postgres"
+      database: "postgres"
+      password: ""
+
+  # nodeSelector/tolerations/affinity — общие для всех инстансов.
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  # Дополнительные метки/аннотации на поды и ресурсы.
+  podAnnotations: {}
+  podLabels: {}
+
+# -----------------------------------------------------------------------------
+# Redis — используется api-gateway (rate limiting) и auth-service.
+# -----------------------------------------------------------------------------
+redis:
+  enabled: true
+
+  image:
+    repository: redis
+    tag: "8.6-alpine"
+
+  serviceName: "redis"
+  service:
+    port: 6379
+
+  auth:
+    enabled: true
+    password: redis
+    existingSecret: ""
+    secretName: "redis-credentials"
+    passwordKey: "password"
+
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+
+  config:
+    appendonly: true
+    # redis-server --maxmemory ... ; пример: "256mb"
+    maxmemory: ""
+    maxmemoryPolicy: "noeviction"
+    extraArgs: []
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+
+# -----------------------------------------------------------------------------
+# MongoDB — product-service.
+# -----------------------------------------------------------------------------
+mongodb:
+  enabled: true
+
+  image:
+    repository: mongo
+    tag: "7.0.5"
+
+  serviceName: "mongodb"
+  service:
+    port: 27017
+
+  auth:
+    enabled: true
+    rootUsername: admin
+    rootPassword: admin123
+    # БД, создаваемая при инициализации.
+    database: products
+    existingSecret: ""
+    secretName: "mongodb-credentials"
+    rootUsernameKey: "root-username"
+    rootPasswordKey: "root-password"
+
+  persistence:
+    enabled: true
+    size: 2Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+
+# -----------------------------------------------------------------------------
+# Kafka в режиме KRaft (single-node, broker+controller).
+# CLUSTER_ID должен быть base64-encoded UUID и НЕ должен меняться для
+# уже отформатированного PVC — иначе брокер не стартует.
+# -----------------------------------------------------------------------------
+kafka:
+  enabled: true
+
+  image:
+    repository: confluentinc/cp-kafka
+    tag: "7.5.0"
+
+  serviceName: "kafka"
+
+  nodeId: 1
+  clusterId: "MkU3OEVBNTcwNTJENDM2Qk"
+
+  listeners:
+    # Внутрикластерный listener (сервисы ходят сюда).
+    internal:
+      name: PLAINTEXT
+      port: 29092
+    controller:
+      name: CONTROLLER
+      port: 9093
+
+  # Факторы репликации для single-node KRaft.
+  offsetsTopicReplicationFactor: 1
+  transactionStateLogReplicationFactor: 1
+  transactionStateLogMinIsr: 1
+
+  # Дополнительные env-переменные брокера.
+  extraEnv: []
+
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 768Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+
+  # Создание топиков отдельным Job'ом.
+  topics:
+    enabled: true
+    image:
+      repository: confluentinc/cp-kafka
+      tag: "7.5.0"
+    partitions: 3
+    replicationFactor: 1
+    # Полный список топиков (включая DLQ).
+    # Источник: infra/kafka/topics.go + dlqTopic из configs/*.yaml всех сервисов.
+    # ВНИМАНИЕ: docker-compose.yaml создаёт только 10 из них и забывает
+    # order.create-payment / payment.succeded / payment.failed, в которые
+    # публикуется order-service (см. internal/service/order/handle_*.go).
+    list:
+      - name: user.created
+      - name: user.created.dlq
+      - name: order.created
+      - name: order.created.dlq
+      - name: order.cancel-inventory
+      - name: order.cancel-inventory.dlq
+      - name: inventory.reserved
+      - name: inventory.reserved.dlq
+      - name: inventory.reservation-failed
+      - name: inventory.reservation-failed.dlq
+      - name: order.create-payment
+      - name: payment.succeded
+      - name: payment.failed
+    # Сколько ждать готовности брокера перед созданием топиков (секунды).
+    waitTimeoutSeconds: 300
+
+# -----------------------------------------------------------------------------
+# Confluent Schema Registry — сервисы регистрируют/читают Avro-схемы.
+# -----------------------------------------------------------------------------
+schemaRegistry:
+  enabled: true
+
+  image:
+    repository: confluentinc/cp-schema-registry
+    tag: "7.5.0"
+
+  serviceName: "schema-registry"
+  service:
+    port: 8081
+
+  compatibilityLevel: "backward"
+  logLevel: "INFO"
+
+  # Адрес Kafka для Schema Registry. Пусто = Kafka из этого же чарта
+  # (<kafka.serviceName>:<internal port>). Задайте явно, если
+  # kafka.enabled=false и брокер внешний (Strimzi/managed):
+  #   kafkaBootstrapServers: "kafka-bootstrap.kafka.svc.cluster.local:9092"
+  kafkaBootstrapServers: ""
+
+  replicas: 1
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 384Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}

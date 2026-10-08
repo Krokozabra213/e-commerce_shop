@@ -1,0 +1,123 @@
+name: Build images
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Тег образов (пусто = sha-<short>)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PROJECT_RAW: ${{ github.repository_owner }}
+  PLATFORM: linux/amd64
+
+jobs:
+  images:
+    name: Сборка и push образов в GHCR
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      project: ${{ steps.meta.outputs.project }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Определить тег и проект
+        id: meta
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          PROJECT="$(echo "${IMAGE_PROJECT_RAW}" | tr '[:upper:]' '[:lower:]')"
+
+          if [ -n "${INPUT_TAG}" ]; then
+            TAG="${INPUT_TAG}"                       # ручной запуск с тегом
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME}"                 # push тега v1.0.0
+          else
+            TAG="sha-$(git rev-parse --short HEAD)"  # ручной запуск без тега
+          fi
+
+          echo "project=${PROJECT}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Тег: ${TAG}"
+
+          echo "Будут собраны и запушены:"
+          REGISTRY="${REGISTRY}" PROJECT="${PROJECT}" TAG="${TAG}" \
+            deploy/helm/scripts/build-images.sh --print-tags | sed 's/^/  /'
+
+      - name: Проверить, что версия в Chart.yaml совпадает с тегом
+        if: ${{ github.ref_type == 'tag' }}
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          CHART="deploy/helm/ecommerce-shop/Chart.yaml"
+          APP_VERSION="$(sed -nE 's/^appVersion:[[:space:]]*"?([^"[:space:]]+)"?[[:space:]]*$/\1/p' "${CHART}" | head -1)"
+
+          if [ "${APP_VERSION}" != "${TAG}" ]; then
+            {
+              echo "::error::appVersion в ${CHART} (${APP_VERSION}) не совпадает с тегом (${TAG})."
+              echo ""
+              echo "Так образы и манифесты разъедутся: чарт будет искать тег ${APP_VERSION},"
+              echo "а в реестр уедет ${TAG}."
+              echo ""
+              echo "Правильный порядок релиза:"
+              echo "  deploy/helm/scripts/bump-version.sh ${TAG}"
+              echo "  git commit -am 'release: ${TAG}'"
+              echo "  git tag ${TAG} && git push && git push --tags"
+            } >&2
+            exit 1
+          fi
+          echo "appVersion (${APP_VERSION}) совпадает с тегом — ок"
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Логин в GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Сборка и push
+        env:
+          PROJECT: ${{ steps.meta.outputs.project }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          PUSH: "1"
+        run: deploy/helm/scripts/build-images.sh
+
+      - name: Итог
+        run: |
+          {
+            echo "### Образы в GHCR"
+            echo ""
+            echo '```'
+            REGISTRY="${REGISTRY}" PROJECT="${{ steps.meta.outputs.project }}" \
+              TAG="${{ steps.meta.outputs.tag }}" \
+              deploy/helm/scripts/build-images.sh --print-tags
+            echo '```'
+            echo ""
+            echo "Выкатка (вручную, когда появится кластер):"
+            echo ""
+            echo '```bash'
+            echo "helm upgrade --install ecommerce deploy/helm/ecommerce-shop -n ecommerce \\"
+            echo "  -f deploy/helm/ecommerce-shop/values-server.yaml \\"
+            echo "  --set global.imageRegistry=ghcr.io \\"
+            echo "  --set global.imageTag=${{ steps.meta.outputs.tag }} \\"
+            echo "  --wait --timeout 20m"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

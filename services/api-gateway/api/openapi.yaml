@@ -88,8 +88,17 @@ info:
     name: MIT
 
 servers:
+  # Относительный URL — запросы идут на тот же хост и порт, с которого открыт
+  # Swagger UI. Это единственный вариант, который работает одинаково:
+  #   * локально через ingress-туннель  -> http://localhost:8080
+  #   * локально по https               -> https://api.ecommerce.local
+  #   * на сервере                      -> https://api.вашдомен.ru
+  # Именно `/` выбирается в Swagger UI по умолчанию (первый элемент списка).
+  # Абсолютные адреса ниже оставлены для запуска сервисов напрямую без кластера.
+  - url: /
+    description: Текущий хост (через ingress / api-gateway)
   - url: http://localhost:4000
-    description: Локальный запуск (docker compose / go run)
+    description: Напрямую в api-gateway (docker compose / go run, мимо nginx)
 
 tags:
   - name: auth

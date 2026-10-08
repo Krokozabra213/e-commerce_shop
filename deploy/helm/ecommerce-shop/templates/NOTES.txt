@@ -1,0 +1,60 @@
+ecommerce-shop установлен.
+  Release:   {{ .Release.Name }}
+  Namespace: {{ .Release.Namespace }}
+  ENV:       {{ .Values.global.environment }}
+
+Включённые сервисы:
+
+{{- range $name, $svc := .Values.services }}
+{{- if $svc.enabled }}
+  - {{ $name }}: http://{{ $name }}:{{ $svc.http.port }}{{ if $svc.grpc }} (grpc :{{ $svc.grpc.port }}){{ end }}
+{{- end }}
+{{- end }}
+
+Проверить состояние:
+
+  kubectl get deploy,svc,ingress,hpa,pdb -n {{ .Release.Namespace }} \
+    -l app.kubernetes.io/part-of=ecommerce-shop
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/part-of=ecommerce-shop
+
+Логи:
+
+  kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/component=api-gateway --tail=100
+{{- if .Values.migrations.enabled }}
+
+Миграции goose (Jobs, хуки {{ .Values.migrations.hook }}):
+
+  kubectl get jobs -n {{ .Release.Namespace }}
+  kubectl logs -n {{ .Release.Namespace }} job/auth-service-migrate
+{{- end }}
+{{- $gw := index .Values.services "api-gateway" | default dict }}
+{{- $gwIngress := $gw.ingress | default dict }}
+{{- if and .Values.ingress.enabled $gw.enabled $gwIngress.enabled }}
+
+Точка входа (Ingress):
+
+  http://{{ $gwIngress.host }}{{ $gwIngress.path | default "/" }}
+  # Нужен адрес ingress-controller'а, например для minikube:
+  #   minikube tunnel           (если ingress addon включён)
+  #   kubectl -n ingress-nginx get svc
+{{- end }}
+
+{{- if .Values.secrets.create }}
+
+ВНИМАНИЕ (secrets.create=true):
+  Secret со всеми паролями и приватным ключом JWT создан средствами чарта
+  и лежит в values/Helm release. Это допустимо только для dev/staging.
+  Для prod: создайте Secret вручную и поставьте
+    --set secrets.create=false --set secrets.existingSecret=<имя>
+  Ожидаемые ключи перечислены в values.yaml (секция secrets).
+{{- end }}
+
+{{- if not .Values.observability.enabled }}
+
+Телеметрия выключена (observability.enabled=false). Чтобы включить:
+
+  helm upgrade {{ .Release.Name }} <chart> -n {{ .Release.Namespace }} \
+    --reuse-values --set observability.enabled=true
+  # при этом otel-collector должен быть доступен по
+  # {{ .Values.observability.otel.endpoint }}
+{{- end }}

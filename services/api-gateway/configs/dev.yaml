@@ -32,7 +32,9 @@ http_user_client:
   addr: "user-service:8200"
 
 grpc_inventory_client:
-  addr: "auth-service:44100"
+  # ИСПРАВЛЕНО: было "auth-service:44100" — у auth-service нет gRPC-сервера.
+  # gRPC (44100) отдаёт inventory-service (см. services/inventory-service/configs/dev.yaml).
+  addr: "inventory-service:44100"
 
 jwt:
   issuer: "auth-service"
