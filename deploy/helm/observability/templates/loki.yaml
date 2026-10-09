@@ -30,8 +30,7 @@ data:
   loki.yaml: |
     {{- $c.config | nindent 4 }}
 ---
-# Headless Service — управляющий (governing) для StatefulSet: обеспечивает
-# DNS-идентичность пода (<pod>.<svc>) и корректную семантику spec.serviceName.
+# Headless Service — управляющий (governing) для StatefulSet.
 apiVersion: v1
 kind: Service
 metadata:

@@ -1,9 +1,5 @@
 {{- /*
-HorizontalPodAutoscaler (autoscaling/v2). Требует metrics-server.
-
-ВАЖНО: если autoscaling.enabled=true, поле `replicas` в Deployment НЕ
-рендерится (см. services.yaml) — иначе `helm upgrade` и HPA будут
-перебивать друг друга.
+HorizontalPodAutoscaler (autoscaling/v2); требует metrics-server; при autoscaling.enabled=true поле replicas в Deployment не рендерится.
 */ -}}
 {{- $root := . }}
 {{- range $name, $svc := $root.Values.services }}

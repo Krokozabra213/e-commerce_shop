@@ -1,24 +1,11 @@
 # =============================================================================
 # ecommerce-infra — профиль для реального кластера
-# =============================================================================
-# ВНИМАНИЕ (важно понимать перед использованием):
-#   Этот чарт запускает PostgreSQL/Redis/MongoDB/Kafka как одиночные
-#   StatefulSet'ы внутри кластера. Это допустимо для staging и небольших
-#   production-инсталляций, но НЕ даёт HA, бэкапов, PITR и автомасштабирования.
-#
-#   Для настоящего production предпочтительнее:
-#     * PostgreSQL — оператор CloudNativePG / Percona, либо managed (RDS/Cloud SQL)
-#     * Redis      — managed (ElastiCache/Memorystore) или Redis Operator
-#     * MongoDB    — MongoDB Community/Enterprise Operator, либо Atlas
-#     * Kafka      — Strimzi Operator (KRaft, 3+ брокера)
-#   В этом случае установите соответствующие `enabled: false` и укажите адреса
-#   внешних сервисов в values app-чарта (см. ../ecommerce-shop/values-prod.yaml).
-#
-# `helm install ecommerce-infra ./deploy/helm/infra -f values-prod.yaml`
+# PostgreSQL/Redis/MongoDB/Kafka запускаются одиночными StatefulSet'ами без HA,
+# бэкапов, PITR и автомасштабирования.
 # =============================================================================
 
 global:
-  # Обязательно заполните: реестр образов.
+  # Реестр образов.
   imageRegistry: ""
   imagePullSecrets: []
   imagePullPolicy: IfNotPresent
@@ -27,19 +14,13 @@ postgresql:
   enabled: true
   auth:
     username: postgres
-    # Пароли НЕ хранятся в values. Создайте Secret заранее:
-    #   kubectl create secret generic postgresql-credentials \
-    #     --from-literal=auth-password="$(openssl rand -hex 24)" \
-    #     --from-literal=inventory-password="$(openssl rand -hex 24)" \
-    #     --from-literal=order-password="$(openssl rand -hex 24)" \
-    #     --from-literal=user-password="$(openssl rand -hex 24)"
     password: ""
     existingSecret: "postgresql-credentials"
     secretName: "postgresql-credentials"
   persistence:
     enabled: true
     size: 20Gi
-    # Укажите StorageClass с поддержкой расширения (например, gp3, premium-rwo).
+    # StorageClass с поддержкой расширения (например, gp3, premium-rwo).
     storageClass: ""
   resources:
     requests:
@@ -120,9 +101,7 @@ kafka:
     limits:
       cpu: "4"
       memory: 4Gi
-  # ВАЖНО: 3 топика-партиции имеют смысл только с 3 брокерами.
-  # Одиночный брокер в prod означает недоступность Kafka при рестарте пода.
-  # Для HA используйте Strimzi (3+ брокера) и выставьте kafka.enabled=false.
+  # Одиночный брокер: Kafka недоступна при рестарте пода.
   topics:
     enabled: true
     partitions: 6

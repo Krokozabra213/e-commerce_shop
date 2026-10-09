@@ -1,6 +1,5 @@
 {{- /*
-Ingress создаётся, если .Values.ingress.enabled И svc.ingress.enabled.
-Backend — Service сервиса (короткое имя == ключ сервиса).
+Ingress создаётся при ingress.enabled и svc.ingress.enabled; backend — Service сервиса (короткое имя == ключ сервиса).
 */ -}}
 {{- $root := . }}
 {{- if $root.Values.ingress.enabled }}

@@ -1,5 +1,5 @@
 {{- /*
-Общие (не selector!) метки для всех ресурсов чарта.
+Общие (не selector) метки для всех ресурсов чарта.
 */ -}}
 {{- define "infra.labels" -}}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
@@ -12,8 +12,6 @@ app.kubernetes.io/part-of: ecommerce-infra
 
 {{- /*
 Метки конкретного компонента.
-Использование: include "infra.componentLabels" (dict "root" . "component" "postgresql-auth" "role" "datastore")
-Поля: root (обязательно), component (обязательно), role (опционально).
 */ -}}
 {{- define "infra.componentLabels" -}}
 {{ include "infra.labels" .root }}
@@ -24,8 +22,7 @@ ecommerce.io/role: {{ . }}
 {{- end }}
 
 {{- /*
-Selector-метки пода. Держим их минимальными и НЕ меняем между релизами,
-иначе Deployment/StatefulSet нельзя будет обновить (selector иммутабелен).
+Selector-метки пода; менять нельзя — selector иммутабелен.
 */ -}}
 {{- define "infra.selectorLabels" -}}
 app.kubernetes.io/name: {{ .root.Chart.Name }}
@@ -35,7 +32,6 @@ app.kubernetes.io/component: {{ .component }}
 
 {{- /*
 Полное имя образа с учётом global.imageRegistry.
-Использование: include "infra.image" (dict "root" . "image" .Values.postgresql.image)
 */ -}}
 {{- define "infra.image" -}}
 {{- $registry := .root.Values.global.imageRegistry | default "" -}}
@@ -87,12 +83,9 @@ resources:
 
 {{- /*
 init-контейнер, который ждёт доступности TCP-порта зависимости.
-Использование: include "infra.waitFor" (dict "root" $ "name" "kafka" "host" "kafka" "port" 29092 "timeoutSeconds" 300)
 */ -}}
 {{- define "infra.waitFor" -}}
-{{- /* waitImage — ПОЛНАЯ ссылка на образ, global.imageRegistry НЕ применяется:
-       в приватных реестрах busybox обычно лежит по другому пути (library/busybox),
-       и авто-префикс давал бы ImagePullBackOff. */ -}}
+{{- /* waitImage — полная ссылка на образ, global.imageRegistry не применяется. */ -}}
 {{- $image := .root.Values.global.waitImage | default "busybox:1.36" -}}
 {{- $attempts := div (int (.timeoutSeconds | default 300)) 3 -}}
 - name: wait-for-{{ .name }}

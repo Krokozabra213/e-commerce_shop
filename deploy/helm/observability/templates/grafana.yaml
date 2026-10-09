@@ -22,11 +22,6 @@ metadata:
 automountServiceAccountToken: false
 {{- end }}
 {{- if not $c.existingSecret }}
-{{- /*
-  НЕ генерируем пароль случайно: randAlphaNum давал бы НОВЫЙ пароль при каждом
-  `helm upgrade`, из-за чего Secret и переменные окружения пода менялись бы
-  «на пустом месте». Если анонимный доступ выключен, пароль обязателен.
-*/ -}}
 {{- $anonymous := $c.anonymous | default dict }}
 {{- if and (not $anonymous.enabled) (not $c.adminPassword) }}
 {{- fail (printf "\n\ngrafana.adminPassword не задан, а grafana.anonymous.enabled=false.\nЗадайте одно из:\n  --set grafana.adminPassword=<пароль>\n  --set grafana.existingSecret=<имя Secret> --set grafana.existingSecretKey=<ключ>\n") }}
@@ -54,8 +49,7 @@ data:
   datasources.yaml: |
     {{- $c.datasources | nindent 4 }}
 ---
-# Headless Service — управляющий (governing) для StatefulSet: обеспечивает
-# DNS-идентичность пода (<pod>.<svc>) и корректную семантику spec.serviceName.
+# Headless Service — управляющий (governing) для StatefulSet.
 apiVersion: v1
 kind: Service
 metadata:

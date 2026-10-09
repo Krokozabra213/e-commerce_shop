@@ -423,6 +423,11 @@ services:
       TELEMETRY_TRACES_SAMPLE_RATE: 1.0
       TELEMETRY_LOG_TO_STDOUT: true
       TELEMETRY_SAMPLE_LOGS: false
+    volumes:
+      # Приватный ключ подписи JWT монтируется с хоста: в образ он не копируется
+      # (см. .dockerignore). Путь внутри контейнера задан в
+      # AUTH_JWT_PRIVATE_KEY_PATH (./certs/jwt-private.pem при WORKDIR /app).
+      - ./services/auth-service/certs:/app/certs:ro
     networks:
       - ecommerce-network
 

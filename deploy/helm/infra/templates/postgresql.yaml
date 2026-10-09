@@ -1,8 +1,7 @@
 {{- if .Values.postgresql.enabled }}
 {{- $pg := .Values.postgresql }}
 {{- /*
-  Один Secret на все инстансы PostgreSQL. Ключ на инстанс: "<key>-password".
-  Если задан auth.existingSecret — Secret не создаём.
+  Один Secret на все инстансы PostgreSQL; ключ на инстанс — "<key>-password".
 */ -}}
 {{- if not $pg.auth.existingSecret }}
 ---
@@ -44,8 +43,6 @@ spec:
     {{- include "infra.selectorLabels" (dict "root" $ "component" $component) | nindent 4 }}
 ---
 # Headless Service — управляющий (governing) для StatefulSet.
-# Нужен, чтобы существовала DNS-идентичность пода (<pod>.<svc>), и чтобы
-# spec.serviceName ссылался на headless-сервис, как требует семантика StatefulSet.
 apiVersion: v1
 kind: Service
 metadata:
@@ -86,7 +83,7 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
       annotations:
-        # Перезапуск пода при изменении параметров (checksum не нужен: пароль берётся из Secret).
+        # Перезапуск пода при изменении параметров (пароль берётся из Secret).
         ecommerce.io/config-hash: {{ (printf "%v|%v|%v" $pg.extraConfig $database $pg.service.port) | sha256sum | trunc 16 | quote }}
         {{- with $pg.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -94,7 +91,7 @@ spec:
     spec:
       {{- include "infra.imagePullSecrets" $ | nindent 6 }}
       automountServiceAccountToken: false
-      # Лишние service links в поде не нужны (см. kafka.yaml).
+      # Service links в поде не нужны (см. kafka.yaml).
       enableServiceLinks: false
       terminationGracePeriodSeconds: 120
       securityContext:
@@ -119,7 +116,7 @@ spec:
               value: {{ $pg.auth.username | quote }}
             - name: POSTGRES_DB
               value: {{ $database | quote }}
-            # ВАЖНО: PGDATA во вложенной директории — иначе ext4/lost+found ломает initdb.
+            # PGDATA во вложенной директории — ext4/lost+found ломает initdb.
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
             - name: POSTGRES_PASSWORD
@@ -147,7 +144,7 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 5
             failureThreshold: 6
-          # Даём PostgreSQL время корректно завершиться (fast shutdown -> checkpoint).
+          # Fast shutdown -> checkpoint при завершении пода.
           lifecycle:
             preStop:
               exec:

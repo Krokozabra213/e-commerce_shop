@@ -1,12 +1,5 @@
 {{- /*
-NetworkPolicy.
-
-ВНИМАНИЕ: политики применяются, только если CNI их поддерживает
-(Calico/Cilium/Antrea). kind и minikube по умолчанию — НЕТ, там включение
-networkPolicy.enabled просто не даст эффекта (не сломает), но и не защитит.
-
-Если networkPolicy.defaultDenyIngress=true, весь входящий трафик в namespace
-запрещается и разрешается только перечисленными ниже потоками.
+NetworkPolicy; применяются только при поддержке CNI (Calico/Cilium/Antrea); при defaultDenyIngress=true входящий трафик в namespace запрещён, кроме перечисленных ниже потоков.
 */ -}}
 {{- $root := . }}
 {{- if $root.Values.networkPolicy.enabled }}
@@ -126,10 +119,7 @@ metadata:
     {{- include "ecommerce-shop.labels" $root | nindent 4 }}
     app.kubernetes.io/component: network-policy
 spec:
-  # Поды observability-чарта (otel-collector/tempo/loki/prometheus/grafana).
-  # Им разрешён вход от любых подов этого namespace: приложение шлёт OTLP,
-  # otel-collector -> tempo/loki, grafana -> tempo/loki/prometheus,
-  # prometheus -> otel-collector.
+  # Поды observability-чарта (otel-collector/tempo/loki/prometheus/grafana); вход разрешён от любых подов этого namespace.
   podSelector:
     matchLabels:
       {{- toYaml $np.observabilityPodLabels | nindent 6 }}

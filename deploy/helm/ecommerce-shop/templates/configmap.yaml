@@ -1,7 +1,5 @@
 {{- /*
-ConfigMap с конфигурацией сервиса.
-Ключ — <global.environment>.yaml, монтируется в /app/configs/<env>.yaml
-(именно этот путь читает config.Init(): fmt.Sprintf("configs/%s.yaml", ENV)).
+ConfigMap с конфигурацией сервиса; ключ — <global.environment>.yaml, монтируется в /app/configs/<env>.yaml.
 */ -}}
 {{- $root := . }}
 {{- range $name, $svc := $root.Values.services }}

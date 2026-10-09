@@ -14,7 +14,7 @@ metadata:
   labels:
     {{- include "infra.componentLabels" (dict "root" $ "component" $component "role" "bootstrap") | nindent 4 }}
   annotations:
-    # Job иммутабелен -> пересоздаём при каждом install/upgrade.
+    # Job иммутабелен — пересоздаётся при каждом install/upgrade.
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "10"
     "helm.sh/hook-delete-policy": before-hook-creation
@@ -28,11 +28,10 @@ spec:
     spec:
       restartPolicy: OnFailure
       automountServiceAccountToken: false
-      # Образ cp-kafka трактует KAFKA_* как конфиг брокера, а service links
-      # подбрасывают KAFKA_PORT/KAFKA_SERVICE_HOST (см. kafka.yaml).
+      # Service links подбрасывают KAFKA_PORT/KAFKA_SERVICE_HOST (см. kafka.yaml).
       enableServiceLinks: false
       {{- with $.Values.global.imagePullSecrets }}
-      # Без этого Job не сможет забрать образ из приватного реестра.
+      # imagePullSecrets для образов из приватного реестра.
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}

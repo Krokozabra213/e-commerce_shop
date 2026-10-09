@@ -1,13 +1,5 @@
 {{- /*
-Jobs миграций goose (по одному на сервис, у которого есть БД).
-
-Образ собирается из services/<name>/Migrate.Dockerfile:
-  docker build -f services/auth-service/Migrate.Dockerfile \
-    -t <registry>/krokozabra213/auth-service-migrate:<tag> .
-
-GOOSE_DBSTRING собирается с $(POSTGRES_PASSWORD): Kubernetes сам подставляет
-значение переменной окружения в env-значение, поэтому пароль не попадает
-в манифест.
+Jobs миграций goose (по одному на сервис с БД); пароль подставляется Kubernetes'ом из Secret через $(POSTGRES_PASSWORD).
 */ -}}
 {{- $root := . }}
 {{- if $root.Values.migrations.enabled }}
@@ -45,10 +37,9 @@ spec:
     spec:
       restartPolicy: OnFailure
       automountServiceAccountToken: false
-      # См. комментарий в services.yaml — лишние service links не нужны.
       enableServiceLinks: false
       {{- with $root.Values.global.imagePullSecrets }}
-      # Без этого Job'ы миграций не смогут забрать образ из приватного реестра.
+      # Загрузка образа из приватного реестра.
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}

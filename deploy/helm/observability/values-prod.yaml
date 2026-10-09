@@ -1,26 +1,8 @@
 # =============================================================================
 # values-prod.yaml — production-like overrides
-# -----------------------------------------------------------------------------
-# Что переопределяем относительно values.yaml:
-#   * включённое персистентное хранилище с увеличенными размерами
-#   * больше ресурсов
-#   * Grafana: анонимный доступ ВЫКЛЮЧЕН, пароль только через existingSecret
-#   * Grafana ingress включён (замените host/tls на свои)
-#   * более длительный retention метрик и трейсов
-# Использование:
-#   helm upgrade --install obs deploy/helm/observability -n observability \
-#     -f values-prod.yaml
-#
-# ПЕРЕД ДЕПЛОЕМ:
-#   1. Создайте Secret с паролем Grafana:
-#      kubectl -n observability create secret generic grafana-admin \
-#        --from-literal=admin-password="$(openssl rand -base64 24)"
-#   2. Проверьте storageClass (пусто = cluster default) и ingress.host.
+# Персистентное хранилище увеличенного размера, больше ресурсов, анонимный
+# доступ Grafana выключен, ingress включён, длительный retention метрик.
 # =============================================================================
-
-# Общий namespace для стека наблюдаемости задаётся при установке:
-#   -n observability --create-namespace
-# (в самом чарте namespace не хардкодится)
 
 otel-collector:
   replicaCount: 1
@@ -35,7 +17,7 @@ otel-collector:
 tempo:
   persistence:
     enabled: true
-    # Пусто = storageClass по умолчанию; укажите свою (например, fast-ssd).
+    # Пусто = storageClass по умолчанию.
     storageClass: ""
     size: 50Gi
   resources:
@@ -78,7 +60,7 @@ grafana:
     enabled: true
     storageClass: ""
     size: 10Gi
-  # В prod пароль берём из заранее созданного Secret, а не из values.
+  # Пароль из заранее созданного Secret.
   existingSecret: grafana-admin
   existingSecretKey: admin-password
   anonymous:

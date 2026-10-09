@@ -1,5 +1,4 @@
 # Patterns to ignore when building packages.
-# This supports shell glob matching, relative path matching, and negation (prefixed with !).
 .DS_Store
 .git/
 .gitignore
@@ -20,6 +19,6 @@
 *.tgz
 ci/
 README.md.gotmpl
-# Local overrides that must never be packaged
+# Local overrides.
 values-local.yaml
 secrets*.yaml

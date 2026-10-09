@@ -1,23 +1,7 @@
 # =============================================================================
 # Дополнительный Ingress: хост localhost → api-gateway (для локальных тестов)
 # =============================================================================
-# Зачем отдельный Ingress, а не правка основного:
-#   основной Ingress (создаёт чарт) обслуживает боевой домен и настроен
-#   https-only + TLS 1.3. Для локальной отладки нужен обычный http на
-#   localhost — Google принимает http ТОЛЬКО для localhost, поэтому это
-#   единственный способ прогнать OAuth через nginx без домена и без
-#   самоподписанного сертификата.
-#
-# Применение:
-#   kubectl apply -f deploy/cluster/ingress-localhost.yaml
-#   kubectl -n ingress-nginx port-forward svc/ingress-nginx-controller 8080:80
-#
-# После этого http://localhost:8080/... идёт ровно тем же путём, что и в проде:
-#   браузер -> nginx (ingress-controller) -> Service api-gateway -> 3 пода
-#
-# ВАЖНО: ssl-redirect выключен только для этого хоста. Основной Ingress
-# (api.ecommerce.local) остаётся https-only — аннотации в ingress-nginx
-# действуют пер-ингресс.
+# Отдельный http-Ingress на localhost, не затрагивающий основной https-Ingress.
 # =============================================================================
 
 ---
@@ -31,8 +15,7 @@ metadata:
     app.kubernetes.io/component: api-gateway
     app.kubernetes.io/part-of: ecommerce-shop
   annotations:
-    # localhost обслуживаем по http: так требует Google для локальной отладки,
-    # и так не нужен самоподписанный сертификат в браузере.
+    # localhost обслуживаем по http: так требует Google для локальной отладки.
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
     nginx.ingress.kubernetes.io/proxy-body-size: "8m"
@@ -50,7 +33,4 @@ spec:
                 port:
                   number: 4000
 ---
-# Про доступ по IP: host в Ingress обязан быть DNS-именем, Kubernetes
-# отклоняет "127.0.0.1" ("must be a DNS name, not an IP address"). Поэтому,
-# если клиент обращается по IP, ему нужно явно передать заголовок Host:
-#   curl -H 'Host: localhost' http://127.0.0.1:8080/healthz
+# host в Ingress обязан быть DNS-именем, а не IP-адресом.

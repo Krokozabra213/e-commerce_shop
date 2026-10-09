@@ -1,22 +1,11 @@
 # =============================================================================
-# ecommerce-shop — локальная разработка (minikube / kind / docker-desktop)
+# ecommerce-shop — локальная разработка
 # =============================================================================
-# Установка:
-#   deploy/helm/deploy.sh              # поднимет infra + app
-#
-# Или вручную:
-#   helm install ecommerce ./deploy/helm/ecommerce-shop \
-#     -n ecommerce -f ./deploy/helm/ecommerce-shop/values-dev.yaml \
-#     --set-file secrets.values.jwtPrivateKey=services/auth-service/certs/jwt-private.pem
-#
-# Предполагается, что infra-чарт уже установлен в тот же namespace
-# (иначе init-контейнеры будут ждать Postgres/Redis/Kafka).
+# Профиль для локального окружения; infra-чарт установлен в тот же namespace.
 # =============================================================================
 
 global:
-  # ENV/APP_ENV: определяет файл configs/<env>.yaml. В образах есть только dev.yaml,
-  # но мы всё равно монтируем ConfigMap со своим <env>.yaml, поэтому значение
-  # должно совпадать с ключом в ConfigMap (он рендерится из этого же значения).
+  # ENV/APP_ENV: определяет файл configs/<env>.yaml; совпадает с ключом в ConfigMap.
   environment: "dev"
   imagePullPolicy: IfNotPresent
 
