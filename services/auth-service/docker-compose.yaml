@@ -22,6 +22,10 @@ services:
         condition: service_healthy
     env_file:
       - .env
+    volumes:
+      # Приватный ключ JWT монтируется с хоста (в образ не копируется),
+      # путь внутри контейнера задан в AUTH_JWT_PRIVATE_KEY_PATH.
+      - ./certs:/app/certs:ro
 
   migrations:
     build:

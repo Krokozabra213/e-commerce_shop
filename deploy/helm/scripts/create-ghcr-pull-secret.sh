@@ -2,26 +2,8 @@
 # =============================================================================
 # create-ghcr-pull-secret.sh — pull-секрет для приватных пакетов GHCR
 # =============================================================================
-# Зачем: после первого push пакеты в GHCR создаются ПРИВАТНЫМИ. Чтобы kubelet
-# мог их скачать, в namespace нужен Secret типа kubernetes.io/dockerconfigjson.
-# Имя секрета должно совпадать с global.imagePullSecrets в values —
-# по умолчанию это `ghcr-pull` (уже прописан в values-ghcr.yaml,
-# values-server.yaml и values-prod.yaml, и подставляется в 10 workload'ов:
-# 6 Deployment'ов и 4 Job'а миграций).
-#
-# ВАЖНО про порядок: секрет должен существовать ДО создания подов, иначе они
-# уйдут в ImagePullBackOff (kubelet не найдёт указанный imagePullSecret).
-#
-# Создание PAT:
-#   GitHub → Settings → Developer settings → Personal access tokens → Tokens
-#   (classic) → Generate new token. Нужен scope `read:packages`.
-#   Для приватного репозитория/организации может потребоваться ещё
-#   `repo` и авторизация токена для SSO организации.
-#
-# Использование:
-#   CR_PAT=ghp_xxx deploy/helm/scripts/create-ghcr-pull-secret.sh
-#   CR_PAT=ghp_xxx NAMESPACE=shop deploy/helm/scripts/create-ghcr-pull-secret.sh
-#   CR_PAT=ghp_xxx DRY_RUN=1 deploy/helm/scripts/create-ghcr-pull-secret.sh
+# Создаёт в namespace Secret типа kubernetes.io/dockerconfigjson для скачивания
+# приватных образов GHCR. Имя секрета совпадает с global.imagePullSecrets.
 #
 # Переменные:
 #   CR_PAT        (обязательно) personal access token со scope read:packages
@@ -29,13 +11,9 @@
 #   NAMESPACE     namespace (ecommerce)
 #   SECRET_NAME   имя секрета (ghcr-pull)
 #   REGISTRY      хост реестра (ghcr.io)
-#   GHCR_USER     логин GitHub в НИЖНЕМ регистре (krokozabra213).
-#                 ВНИМАНИЕ: не USERNAME — эта переменная уже занята окружением
+#   GHCR_USER — не USERNAME: та переменная занята окружением
 #   KUBECTL       бинарь kubectl
 #   DRY_RUN       1 = ничего не создавать
-#
-# Безопасность: токен передаётся только в кластер. Он НЕ попадает ни в файлы,
-# ни в git, ни в историю Helm (секрет создаётся вручную, а не чартом).
 # =============================================================================
 set -euo pipefail
 
@@ -45,9 +23,9 @@ SECRET_NAME="${SECRET_NAME:-ghcr-pull}"
 REGISTRY="${REGISTRY:-ghcr.io}"
 GHCR_USER="${GHCR_USER:-krokozabra213}"
 DRY_RUN="${DRY_RUN:-0}"
-# Мягкая предпроверка токена (не влияет на результат, только предупреждает).
+# Предпроверка токена (только предупреждение).
 PRECHECK="${PRECHECK:-1}"
-# Репозиторий для предпроверки — любой из ваших пакетов.
+# Репозиторий для предпроверки.
 CHECK_REPO="${CHECK_REPO:-api-gateway}"
 
 TOKEN="${CR_PAT:-${GHCR_TOKEN:-}}"
@@ -100,7 +78,7 @@ log "namespace ${NAMESPACE}"
 "${KUBECTL}" create namespace "${NAMESPACE}" --dry-run=client -o yaml | "${KUBECTL}" apply -f - >/dev/null
 
 log "создаю/обновляю pull-секрет ${SECRET_NAME} (тип kubernetes.io/dockerconfigjson)"
-# --dry-run + apply: идемпотентно, повторный запуск просто обновит токен.
+# --dry-run + apply: идемпотентно, повторный запуск обновляет токен.
 "${KUBECTL}" -n "${NAMESPACE}" create secret docker-registry "${SECRET_NAME}" \
   --docker-server="${REGISTRY}" \
   --docker-username="${GHCR_USER}" \

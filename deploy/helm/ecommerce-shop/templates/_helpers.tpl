@@ -1,5 +1,5 @@
 {{- /*
-Общие (не selector!) метки.
+Общие (не selector) метки.
 */ -}}
 {{- define "ecommerce-shop.labels" -}}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
@@ -15,7 +15,6 @@ app.kubernetes.io/part-of: ecommerce-shop
 
 {{- /*
 Метки сервиса.
-Использование: include "ecommerce-shop.componentLabels" (dict "root" . "name" "auth-service")
 */ -}}
 {{- define "ecommerce-shop.componentLabels" -}}
 {{ include "ecommerce-shop.labels" .root }}
@@ -23,7 +22,7 @@ app.kubernetes.io/component: {{ .name }}
 {{- end }}
 
 {{- /*
-Selector-метки пода. Иммутабельны — менять нельзя.
+Selector-метки пода (иммутабельны).
 */ -}}
 {{- define "ecommerce-shop.selectorLabels" -}}
 app.kubernetes.io/name: {{ .root.Chart.Name }}
@@ -32,8 +31,7 @@ app.kubernetes.io/component: {{ .name }}
 {{- end }}
 
 {{- /*
-Возвращает "true", если включён хотя бы один сервис. Иначе пустую строку.
-Использование: {{- if include "ecommerce-shop.anyServiceEnabled" . }}
+Возвращает "true", если включён хотя бы один сервис, иначе пустую строку.
 */ -}}
 {{- define "ecommerce-shop.anyServiceEnabled" -}}
 {{- $any := false -}}
@@ -67,13 +65,7 @@ app.kubernetes.io/component: {{ .name }}
 {{- end }}
 
 {{- /*
-Полное имя образа с учётом global.imageRegistry.
-Использование: include "ecommerce-shop.image" (dict "root" . "image" $svc.image)
-
-Тег выбирается по цепочке: image.tag -> global.imageTag -> .Chart.AppVersion.
-global.imageTag позволяет переопределить тег СРАЗУ для всех сервисов и Job'ов
-миграций:
-  --set global.imageTag=1.2.3
+Полное имя образа с учётом global.imageRegistry; тег: image.tag -> global.imageTag -> .Chart.AppVersion.
 */ -}}
 {{- define "ecommerce-shop.image" -}}
 {{- $registry := .root.Values.global.imageRegistry | default "" -}}
@@ -109,24 +101,19 @@ imagePullPolicy с учётом global.
 {{- end }}
 
 {{- /*
-Имя ConfigMap'а сервиса -> содержит <environment>.yaml.
-Использование: include "ecommerce-shop.configMapName" (dict "root" . "name" "auth-service")
+Имя ConfigMap'а сервиса (содержит <environment>.yaml).
 */ -}}
 {{- define "ecommerce-shop.configMapName" -}}
 {{- printf "%s-config" .name -}}
 {{- end }}
 
 {{- /*
-init-контейнер ожидания зависимости.
-Использование: include "ecommerce-shop.waitContainer" (dict "root" . "item" $item)
-Поддерживает TCP-проверку (nc -z) и HTTP-проверку (wget), если задан item.path.
+init-контейнер ожидания зависимости; TCP-проверка (nc -z) или HTTP-проверка (wget), если задан item.path.
 */ -}}
 {{- define "ecommerce-shop.waitContainer" -}}
 {{- $root := .root -}}
 {{- $item := .item -}}
-{{- /* waitImage — ПОЛНАЯ ссылка на образ, global.imageRegistry к ней НЕ применяется:
-       в приватных реестрах busybox обычно лежит по другому пути (library/busybox),
-       чем образы приложения, и авто-префикс давал бы ImagePullBackOff. */ -}}
+{{- /* waitImage — полная ссылка на образ, global.imageRegistry к ней не применяется. */ -}}
 {{- $image := $root.Values.global.waitImage | default "busybox:1.36" -}}
 {{- $timeout := $root.Values.global.waitTimeoutSeconds | default 600 -}}
 {{- $attempts := div (int $timeout) 3 -}}
@@ -179,10 +166,7 @@ resources:
 {{- end }}
 
 {{- /*
-Секция telemetry для configs/<env>.yaml.
-Одинакова для всех сервисов, отличается только service_name.
-Использование: include "ecommerce-shop.telemetryBlock" (dict "root" . "name" "auth-service")
-ВАЖНО: имена ключей должны совпадать с yaml-тегами infracfg.TelemetryConfig.
+Секция telemetry для configs/<env>.yaml; одинакова для всех сервисов, отличается только service_name.
 */ -}}
 {{- define "ecommerce-shop.telemetryBlock" -}}
 {{- $obs := .root.Values.observability -}}
@@ -203,7 +187,6 @@ telemetry:
 
 {{- /*
 Список allowedOrigins сервиса (с фолбэком на defaults.allowedOrigins).
-Использование: include "ecommerce-shop.allowedOrigins" (dict "root" . "svc" $svc)
 */ -}}
 {{- define "ecommerce-shop.allowedOrigins" -}}
 {{- $origins := .root.Values.defaults.allowedOrigins -}}
@@ -217,7 +200,6 @@ telemetry:
 
 {{- /*
 Секция outbox для configs/<env>.yaml.
-Использование: include "ecommerce-shop.outboxBlock" (dict "root" . "key" "user_created_outbox")
 */ -}}
 {{- define "ecommerce-shop.outboxBlock" -}}
 {{- $o := .root.Values.outbox -}}
@@ -233,13 +215,11 @@ telemetry:
 
 {{- /*
 Секция kafka consumer для configs/<env>.yaml.
-Использование: include "ecommerce-shop.kafkaConsumerBlock" (dict "root" . "key" "orderCreatedConsumer" "groupID" "inventory-service" "topic" "order.created" "dlqTopic" "order.created.dlq")
 */ -}}
 {{- define "ecommerce-shop.kafkaConsumerBlock" -}}
 {{ .key }}:
   brokers:
-    {{- /* brokers — строка через запятую, поэтому splitList, а не одна строка:
-           иначе несколько брокеров превращаются в один невалидный адрес. */}}
+    {{- /* brokers — строка через запятую, поэтому splitList. */}}
     {{- range (splitList "," .root.Values.dependencies.kafka.brokers) }}
     - {{ trim . | quote }}
     {{- end }}
@@ -270,7 +250,6 @@ kafka_producer:
 
 {{- /*
 Секция postgres (без пароля — он приходит из Secret).
-Использование: include "ecommerce-shop.postgresBlock" (dict "root" . "inst" "auth")
 */ -}}
 {{- define "ecommerce-shop.postgresBlock" -}}
 {{- $pg := index .root.Values.dependencies.postgres .inst -}}

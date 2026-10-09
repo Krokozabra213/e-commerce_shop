@@ -2,41 +2,13 @@
 # =============================================================================
 # create-app-secret.sh — собрать Secret приложения из локальных .env и ключа JWT
 # =============================================================================
-# Зачем это нужно.
-#   В кластере сервисы НЕ читают services/*/.env: внутри контейнера godotenv
-#   файл не находит, и вся конфигурация приходит из
-#     * ConfigMap — несекретные значения (files/configs/*.yaml),
-#     * Secret    — секреты через env-переменные (POSTGRES_PASSWORD,
-#                   REDIS_PASSWORD, MONGO_URI, OAUTH_*, APP_SECRET)
-#                   плюс приватный ключ JWT (монтируется файлом).
-#   Этот скрипт переносит локальные секреты в кластер ОДИН раз, после чего чарт
-#   ставится с secrets.create=false + secrets.existingSecret:
-#
-#     helm upgrade --install ecommerce deploy/helm/ecommerce-shop \
-#       -n ecommerce -f deploy/helm/ecommerce-shop/values-dev.yaml \
-#       -f deploy/helm/ecommerce-shop/values-ghcr.yaml \
-#       --set secrets.create=false \
-#       --set secrets.existingSecret=ecommerce-shop-secrets
-#
-#   Плюс против secrets.create=true: реальные OAuth-секреты и пароли не попадают
-#   ни в values-файлы, ни в историю Helm-релизов.
-#
-# Использование:
-#   ./create-app-secret.sh                    # создать/обновить Secret
-#   DRY_RUN=1 ./create-app-secret.sh          # показать план, ничего не менять
-#   NAMESPACE=shop ./create-app-secret.sh
-#   REDIRECT_BASE=http://api.ecommerce.local ./create-app-secret.sh
-#
-# Переменные (все необязательные; значения по умолчанию совпадают с
-# deploy/helm/infra/values-dev.yaml, поэтому «просто работает»):
-#   NAMESPACE                 namespace (по умолчанию ecommerce)
+# Переменные (все необязательные):
+#   NAMESPACE                 namespace (ecommerce)
 #   SECRET_NAME               имя Secret'а (ecommerce-shop-secrets)
 #   ENV_FILE                  откуда брать OAUTH_*/APP_SECRET (auth-service/.env)
 #   JWT_KEY                   путь к приватному ключу JWT
-#   GENERATE_JWT_KEY          1 (по умолчанию) — сгенерировать ключ, если его
-#                             нет; 0 — упасть с ошибкой (для prod)
-#   REDIRECT_BASE             перезаписать redirect URL на
-#                             <REDIRECT_BASE>/api/v1/auth/oauth/<provider>/callback
+#   GENERATE_JWT_KEY          1 = сгенерировать ключ, если его нет; 0 = ошибка
+#   REDIRECT_BASE             базовый URL для redirect URL OAuth
 #   APP_SECRET, POSTGRES_{AUTH,USER,INVENTORY,ORDER}_PASSWORD, REDIS_PASSWORD
 #   MONGO_URI либо MONGODB_{USER,PASSWORD,HOST,PORT,DATABASE}
 #   KUBECTL                   бинарь kubectl
@@ -51,9 +23,6 @@ KUBECTL="${KUBECTL:-kubectl}"
 NAMESPACE="${NAMESPACE:-ecommerce}"
 SECRET_NAME="${SECRET_NAME:-ecommerce-shop-secrets}"
 DRY_RUN="${DRY_RUN:-0}"
-# Генерировать приватный ключ JWT, если его нет (удобно для dev / свежего
-# клона). Для prod выставьте GENERATE_JWT_KEY=0 — тогда скрипт упадёт вместо
-# создания нового ключа.
 GENERATE_JWT_KEY="${GENERATE_JWT_KEY:-1}"
 
 ENV_FILE="${ENV_FILE:-${REPO_ROOT}/services/auth-service/.env}"
@@ -79,7 +48,7 @@ env_get() {
 }
 
 # Значение по цепочке: env-переменная -> .env (fallback_key) -> умолчание.
-# Печатает "<источник> <значение>"; источник нужен только для отчёта.
+# Печатает "<источник> <значение>".
 pick() {
   local var="$1" fallback_key="$2" default="$3" v
   if [ -n "${!var:-}" ]; then printf 'env %s' "${!var}"; return; fi
@@ -117,10 +86,9 @@ PG_ORDER_SRC="$(src_of "${_r}")";     POSTGRES_ORDER_PASSWORD="$(val_of "${_r}")
 _r="$(pick REDIS_PASSWORD "" "${DEFAULT_REDIS_PASSWORD}")"
 REDIS_PASSWORD_SRC="$(src_of "${_r}")"; REDIS_PASSWORD="$(val_of "${_r}")"
 
-# --- MongoDB: чарт собирает mongodb://<user>:<pass>@<host>:<port> -------------
+# --- MongoDB: URI собирается как mongodb://<user>:<pass>@<host>:<port> ---------
 # База задаётся отдельно в configs/product-service.yaml (mongo.database), поэтому
-# в URI её нет: тогда драйвер берёт authSource=admin — ровно то, что создаёт
-# инфра-чарт (root-пользователь в admin).
+# в URI её нет.
 MONGODB_USER="${MONGODB_USER:-admin}"
 MONGODB_PASSWORD="${MONGODB_PASSWORD:-admin123}"
 MONGODB_HOST="${MONGODB_HOST:-mongodb}"
@@ -133,9 +101,8 @@ else
 fi
 
 # --- OAuth --------------------------------------------------------------------
-# clientID/clientSecret/redirectURL помечены в Go-коде env-required и проверяются
-# ВСЕГДА, даже при oauth.*.enabled=false, поэтому пустыми им быть нельзя:
-# иначе под упадёт с "field ... is required but the value is not provided".
+# clientID/clientSecret/redirectURL обязательны всегда, даже при
+# oauth.*.enabled=false.
 oauth_pick() { # $1 = имя переменной, $2 = заглушка
   local r; r="$(pick "$1" "" "$2")"
   local v; v="$(val_of "${r}")"
@@ -163,11 +130,7 @@ if [ -n "${REDIRECT_BASE:-}" ]; then
 fi
 
 # --- Приватный ключ JWT -------------------------------------------------------
-# Если ключа нет (например, свежий клон репозитория — файл в .gitignore),
-# генерируем его. Это удобно для dev, но такой ключ НЕЛЬЗЯ использовать в prod:
-# он существует только на этой машине, и при потере все выданные токены станут
-# невалидны, а при утечке — позволит подделывать JWT. Для prod положите ключ
-# заранее и выставьте GENERATE_JWT_KEY=0, чтобы скрипт падал вместо генерации.
+# Если ключа нет, он генерируется (только для dev; в prod — GENERATE_JWT_KEY=0).
 JWT_GENERATED=0
 if [ ! -s "${JWT_KEY}" ]; then
   if [ "${GENERATE_JWT_KEY}" = "1" ] && [ "${DRY_RUN}" != "1" ]; then
@@ -188,7 +151,7 @@ if [ ! -s "${JWT_KEY}" ]; then
   fi
 fi
 
-# Проверяем ключ, если он есть (при DRY_RUN без ключа проверять нечего).
+# Проверка корректности ключа, если он есть.
 if [ -s "${JWT_KEY}" ]; then
   openssl pkey -in "${JWT_KEY}" -noout >/dev/null 2>&1 \
     || die "файл ${JWT_KEY} не является корректным приватным ключом"

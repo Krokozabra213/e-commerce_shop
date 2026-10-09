@@ -4,10 +4,14 @@ Helm-чарты для микросервисов `e-commerce_shop`. Всё, ч�
 кластере: инфраструктура, сервисы, миграции, ingress, HPA/PDB/NetworkPolicy и
 observability.
 
+Короткая памятка по всему циклу (проверки перед пушем, запуск после
+клонирования, переключение профилей и версий) — [`CHECKLIST.md`](../../CHECKLIST.md)
+в корне репозитория.
+
 ```
 deploy/helm/
 ├── README.md                      ← этот файл (устройство чартов)
-├── DEPLOY-RUNBOOK.md              ← пошаговый запуск: GHCR + minikube + секреты
+├── DEPLOY-RUNBOOK.md              ← пошаговый запуск: GHCR + k3s + секреты
 ├── Makefile                       ← lint / template / validate / install
 ├── deploy.sh                      ← установка «одной командой» (3 релиза по порядку)
 ├── infra/                         ← чарт: PostgreSQL ×4, Redis, MongoDB, Kafka, Schema Registry
@@ -25,38 +29,62 @@ deploy/helm/
 
 ---
 
-## 1. Быстрый старт (minikube / kind)
+## 1. Быстрый старт (k3s)
+
+Нужны `docker`, `kubectl`, `helm` и k3s. Из корня репозитория:
 
 ```bash
-# 0) из корня репозитория
-cd /path/to/e-commerce_shop
+# 1) k3s как systemd-служба — без Traefik (иначе он займёт 80/443)
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable traefik" sh -
+mkdir -p ~/.kube && sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config && sudo chown "$(id -u):$(id -g)" ~/.kube/config
 
-# 1) собрать образы (10 штук: 6 сервисов + 4 образа миграций)
-#    в GHCR (PROJECT по умолчанию krokozabra213 — как в image.repository):
-REGISTRY=ghcr.io PUSH=1 deploy/helm/scripts/build-images.sh
+# 2) ingress-nginx
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx && helm repo update
+helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx -n ingress-nginx --create-namespace -f deploy/cluster/ingress-nginx-values.yaml --set controller.config.hsts=false --wait --timeout 10m
 
-#    для minikube/kind без реестра — локальные образы:
-eval "$(minikube docker-env --shell bash)"   # в fish: minikube docker-env | source
-# или: make -C deploy/helm minikube-load
-deploy/helm/scripts/build-images.sh
-eval "$(minikube docker-env -u --shell bash)"   # в fish: minikube docker-env -u | source
-#    для kind:
-make -C deploy/helm kind-load
+# 3) секреты приложения (приватный ключ JWT генерируется автоматически) и TLS
+REDIRECT_BASE=http://localhost deploy/helm/scripts/create-app-secret.sh
+HOST=api.ecommerce.local deploy/helm/scripts/create-tls-secret.sh
+kubectl apply -f deploy/cluster/ingress-localhost.yaml
 
-# 2) установить всё
-deploy/helm/deploy.sh                        # ENV=dev по умолчанию
+# 4) инфраструктура
+helm upgrade --install ecommerce-infra deploy/helm/infra -n ecommerce --create-namespace -f deploy/helm/infra/values-dev.yaml --wait --timeout 20m
 
-# 3) проверить
-kubectl get pods,svc,ingress -n ecommerce
+# 5) приложение (образы из GHCR — собирать ничего не нужно)
+helm upgrade --install ecommerce deploy/helm/ecommerce-shop -n ecommerce -f deploy/helm/ecommerce-shop/values-dev.yaml -f deploy/helm/ecommerce-shop/values-local-tls.yaml -f deploy/helm/ecommerce-shop/values-ghcr.yaml --set secrets.create=false --set secrets.existingSecret=ecommerce-shop-secrets --wait --timeout 15m
 ```
 
-> `deploy.sh` создаёт Secret сам (`secrets.create=true`) и подставляет ключ JWT.
-> При этом OAuth-креды остаются заглушками `disabled`. Чтобы перенести в
-> кластер **реальные** секреты и OAuth-креды из `services/*/.env`, а также
-> собрать образы в GHCR и поднять ingress — см.
-> [DEPLOY-RUNBOOK.md](DEPLOY-RUNBOOK.md).
+Образы уже опубликованы как `ghcr.io/krokozabra213/<сервис>:<appVersion>` и
+доступны публично, поэтому pull-секрет не требуется.
 
-`deploy.sh` делает три вещи **по порядку**:
+### 1.1 Проверка
+
+ServiceLB k3s выдаёт ingress-контроллеру IP машины, поэтому 80/443 слушаются
+прямо на хосте — `port-forward` не нужен:
+
+```bash
+kubectl -n ecommerce get pods,svc,ingress
+
+curl -s http://localhost/healthz
+curl -sk https://api.ecommerce.local/healthz
+# Swagger UI: http://localhost/swagger/index.html
+```
+
+`/etc/hosts` должен содержать `127.0.0.1 api.ecommerce.local` — TLS-сертификат
+выпущен именно на это имя.
+
+Для итераций по коду соберите образы и импортируйте их в containerd k3s
+(`make -C deploy/helm k3s-load` делает то же самое):
+
+```bash
+deploy/helm/scripts/build-images.sh
+deploy/helm/scripts/build-images.sh --print-tags | xargs -I{} sh -c 'docker save {} | sudo k3s ctr images import -'
+```
+
+Разбор профилей и версий — в [`CHECKLIST.md`](../../CHECKLIST.md), подробные
+сценарии и устранение проблем — в [DEPLOY-RUNBOOK.md](DEPLOY-RUNBOOK.md).
+
+`deploy.sh` ставит релизы по порядку:
 
 | # | Релиз | Что ставит |
 |---|-------|-----------|
@@ -69,11 +97,16 @@ kubectl get pods,svc,ingress -n ecommerce
 ```bash
 cd deploy/helm
 make lint          # helm lint всех чартов
-make validate      # lint + render + проверка контракта конфигов через Go
+make validate      # lint + render + проверка YAML (dev и prod)
+make k3s-load      # собрать образы и импортировать их в containerd k3s
 make install       # namespace + infra + observability + app
 make status
 make logs SVC=api-gateway
 ```
+
+`make install` ставит всё с профилем `values-dev.yaml` и образами из узла,
+поэтому ему должен предшествовать `make k3s-load`. Для образов из GHCR
+используйте команды из шага 5 выше.
 
 ---
 
@@ -167,7 +200,7 @@ YAML, никаких уродливых имён вида `ORDER_CREATED_CONSUME
 * `OAuthProviderConfig.ClientID/ClientSecret/RedirectURL` помечены
   `env-required` и валидируются **всегда**, даже при `oauth.*.enabled=false`.
   Поэтому, если OAuth выключен, в Secret'е всё равно должны быть непустые
-  значения-заглушки (по умолчанию `disabled`) — см. §11, п. 1.
+  значения-заглушки (по умолчанию `disabled`).
 * `RateLimitConfig` и `OutboxConfig` настраиваются только из YAML.
 
 ### Проверка рендера (без кластера)
@@ -228,7 +261,7 @@ StatefulSet и для per-pod DNS (`<pod>.<name>-headless`); обычный Clus
 |---|---|
 | `values.yaml` | базовые значения по умолчанию (накладывается всегда) |
 | `values-dev.yaml` | локальная разработка: http, по 1 реплике, debug-логи |
-| `values-ghcr.yaml` | оверлей: образы из GHCR + pull-секрет (стеком к dev) |
+| `values-ghcr.yaml` | оверлей: образы из GHCR (стеком к dev) |
 | `values-local-tls.yaml` | локально как в проде: HTTPS (самоподписанный) + 3 реплики + PDB |
 | `values-server.yaml` | один сервер (k3s): HTTPS через cert-manager + 3 реплики + инфра в кластере |
 | `values-prod.yaml` | prod: managed-БД, HPA, cert-manager, NetworkPolicy |
@@ -445,69 +478,13 @@ namespace-wide `default-deny-ingress` + правила:
 * вход в observability — от любых подов namespace (OTLP, tempo/loki, scrape).
 
 Egress-правила не задаются, поэтому DNS не ломается. Требуется CNI с поддержкой
-NetworkPolicy (Calico/Cilium/Antrea); в kind/minikube по умолчанию их нет — там
-включение ничего не даст, но и не сломает. Свои источники трафика добавляйте
+NetworkPolicy (Calico/Cilium/Antrea); если в кластере такого CNI нет, включение
+ничего не даст, но и не сломает. Свои источники трафика добавляйте
 через `networkPolicy.extraIngressRules`.
 
 ---
 
-## 11. Что было исправлено и что осталось на код
-
-### 11.1 Исправлено при подготовке чарта
-
-| # | Проблема | Где было | Что сделано |
-|---|---|---|---|
-| 1 | **Приватный ключ JWT попадал в образ auth-service** — `COPY . .` + `COPY certs` при сборке из корня репозитория | `services/auth-service/Dockerfile` | копирование `certs/` убрано (ключ монтируется из Secret'а), добавлен корневой `.dockerignore` |
-| 2 | **Отрендеренные манифесты с реальным ключом** попадали в `deploy/helm/build/` (не в .gitignore) | `scripts/validate-config.sh` (раньше `validate-render.sh`) | рендер идёт с фиктивным ключом, `build/` и `deploy/.tools` добавлены в `.gitignore` |
-| 3 | **Несколько Kafka-брокеров склеивались в один адрес**: строка `a:9092,b:9092` попадала в YAML как один элемент списка | `ecommerce-shop/templates/_helpers.tpl` | `splitList ","` — прод-профиль с 3 брокерами теперь валиден (иначе `/readyz` никогда бы не прошёл) |
-| 4 | **Job'ы миграций не имели `imagePullSecrets`** → в prod с приватным реестром падал весь install | `ecommerce-shop/templates/migrations.yaml`, `infra/templates/kafka-topics.yaml` | добавлены `global.imagePullSecrets` |
-| 5 | **`waitImage` получал префикс реестра без проекта** (`registry.example.com/busybox:1.36`) | `_helpers.tpl` обоих чартов | `waitImage` — полная ссылка, автопрефикс убран |
-| 6 | **`kafka.topics.partitions` в prod не работал** (перекрывался `partitions: 3` у каждого топика) | `infra/values*.yaml` | per-topic `partitions` убраны, применяется верхнеуровневый (в prod = 6) |
-| 7 | **KRaft controller quorum шёл через ClusterIP** — endpoints пусты, пока под не Ready → брокер не мог стать Ready | `infra/templates/kafka.yaml` | voter адресуется через per-pod headless DNS (`kafka-0.kafka-headless:9093`) + `publishNotReadyAddresses` |
-| 8 | **StatefulSet'ы ссылались на обычный ClusterIP-сервис** как на governing service (не было headless) | `infra` (4) и `observability` (4) | добавлены `<svc>-headless` (`clusterIP: None`), `spec.serviceName` переведён на них |
-| 9 | **Нет `seccompProfile`** → поды отклонялись бы в namespace с Pod Security Standard `restricted` | `ecommerce-shop`, `infra` | `seccompProfile: RuntimeDefault` (+ `runAsNonRoot: true` для infra) |
-| 10 | **`pdb.minAvailable: 0` молча превращался в 1** (sprig `default` считает 0 пустым) | `ecommerce-shop/templates/pdb.yaml` | разбор через `hasKey` |
-| 11 | **Schema Registry нельзя было направить на внешний Kafka** при `kafka.enabled=false` | `infra/templates/schema-registry.yaml` | добавлен `schemaRegistry.kafkaBootstrapServers`, init-контейнер ожидания включается только при `kafka.enabled=true` |
-| 12 | **`secrets.create=false` без `existingSecret`** молча ссылался на несуществующий Secret | `ecommerce-shop` | `templates/validate.yaml` c `fail` и понятным текстом |
-| 13 | **prod с `secrets.create=true`** (пароли из values) | `ecommerce-shop` | fail-fast, обходится `secrets.allowCreateInProduction=true` |
-| 14 | **nil-pointer при отсутствии необязательных блоков** (`autoscaling`/`pdb`/`ingress`/`kafka.topics`) | несколько шаблонов | `| default dict` + `required` с внятными сообщениями |
-| 15 | **`api-gateway` gRPC-адрес inventory был неверным**: `auth-service:44100` | `services/api-gateway/configs/dev.yaml` | исправлено на `inventory-service:44100` (у auth-service нет gRPC-сервера) |
-| 16 | **`services/auth-service/certs/.gitkeep` отсутствовал** → `COPY certs` падал в свежем клоне | репозиторий | `.gitkeep` добавлен |
-| 17 | **В `docker-compose.yaml` не хватало 3 Kafka-топиков**, в которые публикуется order-service | `docker-compose.yaml` | добавлены `order.create-payment`, `payment.succeded`, `payment.failed` (см. §8) |
-| 18 | Bash: пустой массив при `set -u` ломал `ENV=prod ./deploy.sh` на bash < 4.4; `DRY_RUN` создавал файл ключа | `deploy.sh` | `${arr[@]+"${arr[@]}"}`, генерация ключа пропускается при `DRY_RUN=1` |
-| 19 | **Kafka и Schema Registry падали в `CrashLoopBackOff`** (exit code 1 за секунду; в логах только `Running in KRaft mode...` и `port is deprecated`) — найдено на живом кластере | `infra`, `ecommerce-shop` | Kubernetes подбрасывал в поды **service links**: `KAFKA_PORT=tcp://<ip>:29092`, `KAFKA_SERVICE_HOST`, `SCHEMA_REGISTRY_PORT` и т.п. Confluent-образ трактует **любую** переменную `KAFKA_*` / `SCHEMA_REGISTRY_*` как конфиг, поэтому брокер получал `port=tcp://...`. Во все pod-спеки обоих чартов добавлен `enableServiceLinks: false` |
-| 20 | `make lint` / `make install` не работали: пути к чартам были заданы как `../infra` | `deploy/helm/Makefile` | Пути приведены к `infra` / `ecommerce-shop` / `observability` (относительно каталога Makefile) |
-| 21 | `build-images.sh --print-tags` печатал имена образов **без переводов строк**, поэтому пример `minikube image load $(... --print-tags)` склеивал их в один аргумент | `scripts/build-images.sh` | Каждое имя печатается отдельной строкой; добавлена make-цель `minikube-load` |
-
-### 11.2 Рекомендации по коду (в чартах не обходится)
-
-1. **OAuth-поля обязательны даже при выключенном OAuth.**
-   `OAuthProviderConfig.{ClientID,ClientSecret,RedirectURL}` помечены
-   `env-required` безусловно, поэтому при `oauth.*.enabled=false` нужны
-   непустые заглушки (по умолчанию `disabled`). *Рекомендация:* проверять
-   обязательность только при `enabled=true`.
-
-2. **`api-gateway` не вызывает `JWTClient.Validate()`.** В
-   `services/api-gateway/internal/config/config.go` `Validate()` проверяет
-   только `Logger` и `Redis`; `jwt.publicKeyPath`/`jwksEndpoint` не валидируются.
-   Сейчас не мешает (ключ берётся у auth-service по HTTP), но валидация мертва.
-
-3. **`auth-service` `/readyz` не возвращает 500 при недоступном Redis.** В
-   `internal/features/health/handler.go` ошибка Redis выставляет
-   `c.Status(500)`, но финальный `c.Status(statusCode).JSON(...)` перезаписывает
-   его на 200.
-
-4. **`Migrate.Dockerfile` пинит goose v3.22.1**, локально установлен v3.27.2.
-   Возможно, стоит зафиксировать одну версию во всех местах.
-
-5. **`notification-service` — пустой модуль** (только `go.mod` и пустой
-   `Makefile`), но перечислен в `go.work`. В чарт не включён.
-
-6. **`ENV` vs `APP_ENV`.** Файл конфига выбирается по «голому» `ENV`, а
-   `AppConfig.ENV` читается из `APP_ENV`. Чарт выставляет обе переменные —
-   стоит унифицировать в коде.
-
-## 12. Устранение неполадок
+## 11. Устранение неполадок
 
 | Симптом | Причина / что делать |
 |---|---|
@@ -516,7 +493,7 @@ NetworkPolicy (Calico/Cilium/Antrea); в kind/minikube по умолчанию �
 | `open .env: no such file or directory` в логах | **не ошибка**: `godotenv.Load()` не находит `.env` в контейнере и просто логирует |
 | `auth-service`: `failed to load private key` | пустой/битый `secrets.values.jwtPrivateKey` либо не смонтирован Secret. Проверьте `AUTH_JWT_PRIVATE_KEY_PATH` и `kubectl get secret ... -o jsonpath='{.data.jwt-private-key}' \| base64 -d \| head -1` |
 | `errored, unable to authenticate` у Kafka-консьюмеров | топики не созданы (Job `kafka-topics`), либо `dependencies.kafka.brokers` неверны |
-| Kafka в `CrashLoopBackOff`: exit code 1 за секунду, в логах только `Running in KRaft mode...` и `port is deprecated. Please use KAFKA_ADVERTISED_LISTENERS instead.` | service links: Service с именем `kafka` подбрасывает в под `KAFKA_PORT=tcp://...`, и Confluent-образ принимает это за конфиг брокера. Убедитесь, что в pod-спеке есть `enableServiceLinks: false` (см. §11.1, п. 19) |
+| Kafka в `CrashLoopBackOff`: exit code 1 за секунду, в логах только `Running in KRaft mode...` и `port is deprecated. Please use KAFKA_ADVERTISED_LISTENERS instead.` | service links: Service с именем `kafka` подбрасывает в под `KAFKA_PORT=tcp://...`, и Confluent-образ принимает это за конфиг брокера. В pod-спеке должен быть `enableServiceLinks: false` |
 | Schema Registry бесконечно перезапускается | Kafka ещё не готова; init-контейнер ждёт порт, проверьте `kubectl logs deploy/schema-registry -c wait-for-kafka` |
 | `unsupported image` / образ не найден | `global.imageRegistry` — **только хост**; путь уже в `image.repository` |
 | Миграции не запускаются | это хуки: `helm upgrade` их выполняет, `helm template` — только рендерит. Смотрите `kubectl get jobs`, `helm get hooks <release>` |
@@ -524,69 +501,45 @@ NetworkPolicy (Calico/Cilium/Antrea); в kind/minikube по умолчанию �
 
 ---
 
-## 13. Что проверено и что нет
+## 12. Область проверки и известные ограничения
 
-Проверено (воспроизводимо, без кластера):
+Что покрыто проверками, а что осталось непроверенным — чтобы тестировщик
+понимал, куда смотреть в первую очередь.
 
-* `helm lint` всех трёх чартов — 0 ошибок.
-* `helm template` всех чартов в профилях `values.yaml`, `values-dev.yaml`,
-  `values-prod.yaml` — весь вывод валидный YAML, `metadata.namespace` нигде не
-  захардкожен.
-* Выключение всех компонентов/сервисов каждого чарта даёт пустой рендер;
-  отключение каждого сервиса по отдельности рендерится без ошибок.
-* **Контракт конфигов:** все 6 отрендеренных `<env>.yaml` (dev и prod) успешно
-  загружаются настоящим `config.Init()` соответствующего сервиса с теми же
-  env-переменными, что задаёт Deployment. Плюс негативный тест (испорченный
-  ключ → падение) подтверждает, что проверка не «пустая».
-* `docker`-образы `postgres:16-alpine` содержат `pg_ctl`/`pg_isready`
-  (используются в `preStop`/пробах).
-* Проверки «отрицательных» сценариев: fail-fast на пустом ключе JWT,
-  `secrets.create=false` без `existingSecret`, `prod + secrets.create=true`,
-  `migration.enabled` без `database`; отсутствие необязательных блоков
-  (`autoscaling`/`pdb`/`ingress`/`kafka.topics` = `null`).
+**Покрыто:**
 
-> Полные проверки (схемы Kubernetes через kubeconform, детектор дублирующихся
-> YAML-ключей и прогон конфигов через реальный `config.Init()`) были при
-> подготовке чарта и затем убраны как избыточные — сейчас остался
-> `scripts/validate-config.sh`. При необходимости их можно вернуть из истории
-> git.
+* `helm lint` и `helm template` всех трёх чартов в профилях dev, prod и server —
+  вывод валидный YAML;
+* установка на k3s: инфраструктура (4 x PostgreSQL, Redis, MongoDB,
+  Kafka (KRaft), Schema Registry) и приложение (6 сервисов + 4 Job'а миграций)
+  поднимаются, поды проходят пробы при `readOnlyRootFilesystem: true` и
+  `runAsNonRoot: 65534`;
+* ingress -> `api-gateway`: `/healthz` -> 200, `/readyz` -> OK; HTTPS с TLS 1.3,
+  TLS 1.2 отклоняется, http редиректится на https (DEPLOY-RUNBOOK.md §11);
+* JWT: приватный ключ из Secret смонтирован, `POST /api/v1/auth/login`
+  возвращает RS256-токен;
+* сквозной сценарий: `register` -> outbox -> Kafka -> `user-service` создал
+  пользователя -> `login` -> `GET /users/me` -> создание категории и товара
+  (MongoDB) -> публикация -> товар виден в каталоге с остатками из
+  `inventory-service` (gRPC);
+* Swagger UI и same-origin запросы из него (DEPLOY-RUNBOOK.md §14).
 
-**Проверено на живом кластере (minikube v1.38.1, Kubernetes v1.35.1, 2026-10-06):**
-
-* инфраструктура: 4 × PostgreSQL, Redis, MongoDB, Kafka (KRaft), Schema Registry —
-  все поды `Running`, Job создания топиков `Completed`;
-* приложение: 6/6 сервисов `Running`, 4/4 Job'а миграций `Complete`;
-* `readOnlyRootFilesystem: true` + `runAsNonRoot: 65534` — сервисы стартуют и
-  проходят пробы; uid/gid образов infra (999/999/999/1000) работают на
-  hostpath-провижинере minikube;
-* ingress → `api-gateway`: `/healthz` → 200, `/readyz` → OK;
-* JWT: приватный ключ из Secret смонтирован, `/api/v1/auth/login` возвращает
-  настоящий RS256-токен; api-gateway забирает публичный ключ у auth-service;
-* OAuth-креды из `.env` доехали до auth-service;
-* **сквозной сценарий:** `register` → outbox → Kafka → `user-service` создал
-  пользователя → `login` → `GET /users/me` с токеном → создание категории и
-  товара (MongoDB) → публикация → товар виден в каталоге **с остатками из
-  `inventory-service` через gRPC**.
-
-**Не проверено:**
+**Не покрыто:**
 
 * заказ (`order-service`) и резерв товара под нагрузкой;
-* наблюдаемость: OTLP → Tempo/Loki, скрейп otel-collector, дашборды Grafana
+* наблюдаемость: OTLP -> Tempo/Loki, скрейп otel-collector, дашборды Grafana
   (в dev-профиле observability выключена);
-* NetworkPolicy в реальном CNI (в minikube по умолчанию CNI без поддержки policy);
-* HA-профили (`replicaCount > 1`, `autoscaling.enabled`), prod с внешними БД.
+* NetworkPolicy в реальном CNI (в кластере по умолчанию CNI без поддержки policy);
+* HA-профили (`replicaCount > 1`, `autoscaling.enabled`) и prod с внешними БД.
 
-Команды для проверки в вашем кластере:
+Команды для проверки:
 
 ```bash
 # проверка рендера без кластера (dev + prod)
 deploy/helm/scripts/validate-config.sh
 make -C deploy/helm validate                # то же + helm lint + template всех чартов
 
-# полноценная установка на minikube
-minikube start --cpus 4 --memory 6144
-minikube addons enable ingress
-deploy/helm/deploy.sh                       # или пошагово — см. DEPLOY-RUNBOOK.md
+# полноценная установка на k3s — см. §1 или DEPLOY-RUNBOOK.md
 kubectl get pods -n ecommerce -w
 
 # server-side проверка манифестов без установки
@@ -598,7 +551,7 @@ helm template ecommerce deploy/helm/ecommerce-shop -f deploy/helm/ecommerce-shop
 
 ---
 
-## 14. Удаление
+## 13. Удаление
 
 ```bash
 helm uninstall ecommerce -n ecommerce

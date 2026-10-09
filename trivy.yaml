@@ -2,6 +2,9 @@ scan:
   skip-files:
     - "services/auth-service/certs/jwt-private.pem"
     - "services/api-gateway/api/openapi.yaml"
+    # Локальные артефакты деплоя: там по назначению лежат сгенерированные
+    # ключи (self-signed TLS из create-tls-secret.sh). В CI каталога нет.
+    - "deploy/.tools/**"
 
 vulnerability:
   ignore-unfixed: true

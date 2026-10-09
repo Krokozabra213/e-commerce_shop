@@ -2,19 +2,8 @@
 # =============================================================================
 # set-oauth-redirect.sh — переключить OAuth-redirect между localhost и доменом
 # =============================================================================
-# Зачем: адрес callback'а должен 1:1 совпадать с тем, что зарегистрирован в
-# OAuth-приложении Google/GitHub. Локально Google принимает только localhost
-# (`.local` и прочие непубличные TLD он отклоняет), а на сервере нужен https
-# с настоящим доменом. Этот скрипт меняет адрес в Secret'е и перезапускает
-# auth-service, чтобы новые значения подхватились.
-#
-# Использование:
-#   ./set-oauth-redirect.sh http://localhost:8080
-#   ./set-oauth-redirect.sh https://api.вашдомен.ru
-#   ./set-oauth-redirect.sh https://api.вашдомен.ru --no-restart
-#
-# Скрипт ничего не знает про консоли провайдеров — он только печатает точные
-# URL, которые нужно там зарегистрировать.
+# Меняет адрес callback'а в Secret'е и перезапускает auth-service, чтобы новые
+# значения подхватились.
 #
 # Переменные: NAMESPACE, SECRET_NAME, KUBECTL — как в create-app-secret.sh.
 # =============================================================================
@@ -48,8 +37,8 @@ REDIRECT_BASE="${BASE_URL%/}" \
 
 if [ "${RESTART}" = "1" ]; then
   command -v "${KUBECTL}" >/dev/null || die "не найден ${KUBECTL}"
-  # Значения приходят через secretKeyRef, поэтому Secret сам по себе не
-  # триггерит rollout — пересоздаём поды вручную.
+  # Значения приходят через secretKeyRef, поэтому Secret не триггерит rollout:
+  # поды пересоздаются вручную.
   log "перезапускаю auth-service"
   "${KUBECTL}" -n "${NAMESPACE}" rollout restart deploy/auth-service
   "${KUBECTL}" -n "${NAMESPACE}" rollout status deploy/auth-service --timeout=120s

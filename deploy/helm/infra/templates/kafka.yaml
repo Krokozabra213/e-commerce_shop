@@ -68,7 +68,7 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
       annotations:
-        # CLUSTER_ID менять нельзя для уже отформатированного PVC — учитываем в hash.
+        # CLUSTER_ID фиксирован для отформатированного PVC — учитывается в hash.
         ecommerce.io/config-hash: {{ (printf "%v|%v|%v|%v" $kafka.clusterId $kafka.nodeId $internal.port $controller.port) | sha256sum | trunc 16 | quote }}
         {{- with $kafka.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -77,11 +77,8 @@ spec:
       {{- include "infra.imagePullSecrets" $ | nindent 6 }}
       automountServiceAccountToken: false
       {{- /*
-        ВАЖНО: Service с именем "kafka" заставляет Kubernetes подбрасывать в под
-        service links — KAFKA_PORT=tcp://<clusterIP>:29092, KAFKA_SERVICE_HOST,
-        KAFKA_PORT_29092_TCP* и т.д. Confluent-образ трактует ЛЮБУЮ переменную
-        KAFKA_* как конфиг брокера, поэтому получал port=tcp://... и падал на
-        старте (CrashLoopBackOff, exit code 1). Отключаем service links.
+        Service links (<SVC>_PORT и т.п.) ломают Confluent-образы: их configure
+        трактует любую KAFKA_* как конфиг брокера.
       */}}
       enableServiceLinks: false
       terminationGracePeriodSeconds: 60
@@ -107,12 +104,7 @@ spec:
               value: "broker,controller"
             - name: KAFKA_CONTROLLER_QUORUM_VOTERS
               {{- /*
-                ВАЖНО: адресуем controller через per-pod headless DNS
-                (<sts>-0.<svc>-headless), а НЕ через ClusterIP-сервис.
-                У ClusterIP нет endpoints, пока под не Ready, поэтому брокер не
-                смог бы установить controller quorum и никогда не стал бы Ready
-                (deadlock). У headless-сервиса publishNotReadyAddresses: true,
-                поэтому его DNS-запись доступна сразу.
+                Controller адресуется через per-pod headless DNS (<sts>-0.<svc>-headless).
               */}}
               value: {{ printf "%d@%s-0.%s-headless:%d" (int $kafka.nodeId) $kafka.serviceName $kafka.serviceName (int $controller.port) | quote }}
             - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
@@ -134,8 +126,7 @@ spec:
               value: {{ $kafka.transactionStateLogMinIsr | quote }}
             - name: KAFKA_LOG_DIRS
               value: "/var/lib/kafka/data"
-            # Как в docker-compose.yaml: дефолт Confluent-образа (auto.create.topics.enable=true).
-            # Топики всё равно создаются явно Job'ом kafka-topics.
+            # auto.create.topics.enable=true — дефолт Confluent-образа; топики создаются Job'ом kafka-topics.
             {{- with $kafka.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

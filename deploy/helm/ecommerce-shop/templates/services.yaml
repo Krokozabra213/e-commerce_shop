@@ -1,9 +1,5 @@
 {{- /*
-Deployment + Service для каждого включённого сервиса.
-
-ВНИМАНИЕ: Service называется КОРОТКО (== ключ сервиса, без префикса релиза).
-На эти имена ссылаются конфиги (auth-service:8100, inventory-service:44100).
-Менять имена нельзя без правки files/configs/*.yaml.
+Deployment + Service для каждого включённого сервиса; имя Service — короткий ключ сервиса (без префикса релиза), на него ссылаются конфиги.
 */ -}}
 {{- $root := . }}
 {{- $secretName := include "ecommerce-shop.secretName" $root }}
@@ -13,7 +9,7 @@ Deployment + Service для каждого включённого сервиса
 {{- if $svc.enabled }}
 {{- $svcSecrets := $svc.secrets | default dict }}
 
-{{- /* Значения с фолбэком на defaults (hasKey — чтобы false не терялся). */ -}}
+{{- /* Значения с фолбэком на defaults. */ -}}
 {{- $resources := $defaults.resources }}
 {{- if hasKey $svc "resources" }}{{ $resources = $svc.resources }}{{ end }}
 {{- $podSecurityContext := $defaults.podSecurityContext }}
@@ -22,15 +18,10 @@ Deployment + Service для каждого включённого сервиса
 {{- if hasKey $svc "securityContext" }}{{ $securityContext = $svc.securityContext }}{{ end }}
 {{- $terminationGracePeriodSeconds := $defaults.terminationGracePeriodSeconds }}
 {{- if hasKey $svc "terminationGracePeriodSeconds" }}{{ $terminationGracePeriodSeconds = $svc.terminationGracePeriodSeconds }}{{ end }}
-{{- /* autoscaling может отсутствовать вовсе — не падаем на nil. */ -}}
 {{- $autoscaling := $svc.autoscaling | default dict }}
 {{- $replicaCount := $svc.replicaCount | default 1 }}
 {{- /*
-  Распределение реплик по узлам. Если у сервиса topologySpreadConstraints не
-  задан (пустой список), но включён defaults.spreadAcrossNodes — рендерим
-  constraint с селектором ИМЕННО этого сервиса, чтобы реплики не собрались на
-  одном узле. whenUnsatisfiable: ScheduleAnyway — чтобы одноузловой кластер
-  (minikube) не остался без подов.
+  Распределение реплик по узлам: при defaults.spreadAcrossNodes рендерится constraint по hostname.
 */ -}}
 {{- $tsc := $svc.topologySpreadConstraints }}
 {{- if and (not $tsc) $defaults.spreadAcrossNodes }}
@@ -110,10 +101,7 @@ spec:
       serviceAccountName: {{ $saName }}
       automountServiceAccountToken: false
       {{- /*
-        Отключаем service links. Kubernetes иначе подбрасывает в под переменные
-        вида <SVC>_PORT / <SVC>_SERVICE_HOST, а cleanenv применяет env-переменные
-        ПОВЕРХ YAML из ConfigMap — то есть случайная переменная могла бы молча
-        перекрыть корректное значение из конфига.
+        Service links отключены: env-переменные имеют приоритет над YAML из ConfigMap.
       */}}
       enableServiceLinks: false
       {{- with $root.Values.global.imagePullSecrets }}
@@ -186,8 +174,7 @@ spec:
                   key: mongodb-uri
             {{- end }}
             {{- if $svcSecrets.oauth }}
-            # Поля OAuthProviderConfig помечены env-required и валидируются
-            # ВСЕГДА, даже при oauth.*.enabled=false.
+            # Поля OAuthProviderConfig (env-required) валидируются всегда, даже при oauth.*.enabled=false.
             - name: OAUTH_GOOGLE_CLIENT_ID
               valueFrom:
                 secretKeyRef:

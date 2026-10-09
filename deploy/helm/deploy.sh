@@ -2,28 +2,14 @@
 # =============================================================================
 # deploy.sh — установка приложения в Kubernetes «одной командой»
 # =============================================================================
-# Порядок (важен!):
-#   1. infra         — Postgres/Redis/Mongo/Kafka/Schema Registry + топики
-#   2. observability — otel-collector/tempo/loki/prometheus/grafana (опционально)
-#   3. app           — 6 сервисов + миграции goose
-#
-# Почему инфраструктура отдельным релизом: миграции приложения запускаются
-# Helm-хуком и должны видеть живую БД. Внутри одного релиза это невозможно
-# (хуки выполняются до/после основных ресурсов, но не «между» ними).
-#
-# Использование:
-#   ./deploy.sh                          # dev-профиль в namespace ecommerce
-#   ENV=prod ./deploy.sh                 # prod-профиль
-#   NAMESPACE=shop ENV=prod ./deploy.sh
-#   WITH_OBSERVABILITY=0 ./deploy.sh     # без observability
-#   DRY_RUN=1 ./deploy.sh                # только показать, что будет сделано
+# Ставит три релиза по порядку: infra, observability, app.
 #
 # Переменные:
-#   ENV=dev|prod            профиль values (по умолчанию dev)
+#   ENV=dev|prod            профиль values (dev)
 #   NAMESPACE=ecommerce
 #   RELEASE_INFRA / RELEASE_APP / RELEASE_OBS
-#   REGISTRY, PROJECT, TAG  для целей сборки образов (только вывод подсказки)
-#   WITH_INFRA=1            ставить infra (для prod обычно 0 — БД внешние)
+#   REGISTRY, PROJECT, TAG  для целей сборки образов
+#   WITH_INFRA=1            ставить infra
 #   WITH_OBSERVABILITY=1
 #   TIMEOUT=15m
 #   DRY_RUN=0
@@ -81,7 +67,6 @@ VALUES_OBS="${CHART_OBS}/values-${ENV}.yaml"
 
 # -----------------------------------------------------------------------------
 # Приватный ключ JWT нужен только если чарт сам создаёт Secret (dev).
-# Значение secrets.create ищем по цепочке values.yaml -> values-<env>.yaml.
 # -----------------------------------------------------------------------------
 JWT_ARGS=()
 APP_SECRETS_CREATE="$(python3 - "${CHART_APP}/values.yaml" "${VALUES_APP}" <<'PY'
@@ -148,8 +133,7 @@ else
 fi
 
 log "3/3 app (release ${RELEASE_APP}, values ${VALUES_APP##*/})"
-# ${arr[@]+"${arr[@]}"} — безопасная передача пустого массива при set -u
-# (bash < 4.4, например macOS /bin/bash 3.2, иначе "unbound variable").
+# Безопасная передача пустого массива при set -u.
 run "${HELM}" upgrade --install "${RELEASE_APP}" "${CHART_APP}" \
   --namespace "${NAMESPACE}" -f "${VALUES_APP}" ${JWT_ARGS[@]+"${JWT_ARGS[@]}"} \
   --wait --timeout "${TIMEOUT}"

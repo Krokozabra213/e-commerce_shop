@@ -2,22 +2,8 @@
 # =============================================================================
 # bump-version.sh — обновить версию приложения (единый источник)
 # =============================================================================
-# Версия образов берётся из appVersion чарта приложения:
-#   deploy/helm/ecommerce-shop/Chart.yaml -> appVersion
-# и попадает в манифесты как <registry>/<repository>:<appVersion>.
-# Этот скрипт меняет её в одном месте — больше нигде тег править не нужно
-# (явные services.<name>.image.tag из профилей убраны).
-#
-# Типичный релиз:
-#   deploy/helm/scripts/bump-version.sh v1.2.3
-#   git commit -am "release: v1.2.3"
-#   git tag v1.2.3 && git push && git push --tags
-# Дальше workflow deploy.yaml соберёт образы с тегом v1.2.3, а кластер
-# подхватит их из реестра без --set и без правки values.
-#
-# Использование:
-#   ./bump-version.sh v1.2.3
-#   ./bump-version.sh v1.2.3 --chart-version 0.3.0   # + version чарта
+# Меняет appVersion чарта приложения в deploy/helm/ecommerce-shop/Chart.yaml;
+# из него берётся тег образов в манифестах.
 # =============================================================================
 set -euo pipefail
 

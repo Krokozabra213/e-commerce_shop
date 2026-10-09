@@ -1,21 +1,8 @@
 # =============================================================================
 # ClusterIssuer для Let's Encrypt (cert-manager)
 # =============================================================================
-# 1) Установить cert-manager:
-#      kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.2/cert-manager.yaml
-#      kubectl -n cert-manager wait --for=condition=Available deploy --all --timeout=5m
-#
-# 2) Домен из values-prod.yaml (services.api-gateway.ingress.host) уже должен
-#    указывать A-записью на внешний IP сервера, а 80/tcp — быть открыт:
-#    Let's Encrypt подтверждает владение доменом по HTTP-01.
-#
-# 3) Применить этот файл (ЗАМЕНИТЬ email):
-#      kubectl apply -f deploy/cluster/cluster-issuer-letsencrypt.yaml
-#
-# Сертификат выпустится сам: чарт ссылается на issuer аннотацией
-# cert-manager.io/cluster-issuer, а Secret создаст cert-manager. Имя Secret'а
-# в values-prod.yaml (services.api-gateway.ingress.tls.secretName) должно
-# совпадать с тем, что просит Ingress — cert-manager заполнит его по аннотации.
+# Чарт ссылается на issuer аннотацией cert-manager.io/cluster-issuer,
+# а Secret создаёт cert-manager.
 # =============================================================================
 
 ---
@@ -35,9 +22,7 @@ spec:
             class: nginx
 
 ---
-# Staging-issuer для отладки: у Let's Encrypt жёсткие лимиты (5 неудачных
-# проверок в час на домен), поэтому первый выпуск удобнее прогнать на staging,
-# а потом переключиться на letsencrypt-prod.
+# Staging-issuer для отладки выпуска сертификата.
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:

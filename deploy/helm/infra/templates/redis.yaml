@@ -78,7 +78,7 @@ spec:
     spec:
       {{- include "infra.imagePullSecrets" $ | nindent 6 }}
       automountServiceAccountToken: false
-      # Лишние service links в поде не нужны (см. kafka.yaml).
+      # Service links в поде не нужны (см. kafka.yaml).
       enableServiceLinks: false
       terminationGracePeriodSeconds: 30
       securityContext:

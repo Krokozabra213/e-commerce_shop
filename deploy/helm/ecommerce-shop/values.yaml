@@ -1,14 +1,9 @@
 # =============================================================================
 # ecommerce-shop — values по умолчанию
 # =============================================================================
-# ВАЖНО про имена Service'ов.
-# Service каждого сервиса называется так же, как ключ в `services` (auth-service,
-# api-gateway, ...), БЕЗ префикса релиза. Это требование кода: конфиги ссылаются
-# друг на друга короткими DNS-именами (auth-service:8100, inventory-service:44100,
-# kafka:29092 ...). Следствие: один релиз этого чарта на namespace.
-#
-# Конфигурация сервисов (то, что раньше лежало в services/*/configs/dev.yaml)
-# лежит в `files/configs/<имя-сервиса>.yaml` и рендерится в ConfigMap.
+# Service каждого сервиса называется так же, как ключ в `services`, без префикса
+# релиза: конфиги ссылаются друг на друга короткими DNS-именами; один релиз на namespace.
+# Конфигурация сервисов лежит в `files/configs/<имя-сервиса>.yaml` и рендерится в ConfigMap.
 # Переменные окружения из Secret'а переопределяют секретные поля.
 # =============================================================================
 
@@ -16,29 +11,19 @@ nameOverride: ""
 fullnameOverride: ""
 
 global:
-  # ВНИМАНИЕ: imageRegistry — это ТОЛЬКО хост реестра (например
-  # "registry.example.com" или "ghcr.io"). Путь/проект уже входит в
-  # image.repository (например "krokozabra213/api-gateway"),
-  # итоговый образ: <imageRegistry>/<image.repository>:<tag>.
-  # Пусто = Docker Hub.
+  # Только хост реестра (ghcr.io, registry.example.com); путь/проект входит в
+  # image.repository, итоговый образ: <imageRegistry>/<image.repository>:<tag>. Пусто = Docker Hub.
   imageRegistry: ""
   imagePullSecrets: []
   imagePullPolicy: IfNotPresent
-  # Тег для ВСЕХ сервисов и образов миграций сразу. Пусто = .Chart.AppVersion
-  # (сейчас "v1.0.0"). Отдельный сервис можно переопределить через
-  # services.<name>.image.tag. Пример для CI:
-  #   --set global.imageTag=${GITHUB_REF_NAME}
+  # Тег для всех сервисов и образов миграций сразу. Пусто = .Chart.AppVersion.
+  # Отдельный сервис переопределяется через services.<name>.image.tag.
   imageTag: ""
-  # Образ для init-контейнеров ожидания зависимостей.
-  # ВНИМАНИЕ: это ПОЛНАЯ ссылка на образ, global.imageRegistry к ней НЕ
-  # применяется. В приватных реестрах busybox обычно лежит по другому пути
-  # (например "library/busybox"), чем образы приложения, поэтому авто-префикс
-  # приводил бы к ImagePullBackOff. При необходимости укажите полный путь:
-  #   waitImage: "registry.example.com/library/busybox:1.36"
+  # Образ для init-контейнеров ожидания зависимостей: полная ссылка на образ,
+  # global.imageRegistry к ней не применяется.
   waitImage: "busybox:1.36"
 
-  # Значение переменных ENV и APP_ENV.
-  # ВАЖНО: определяет имя файла конфига `configs/<environment>.yaml`.
+  # Значение переменных ENV и APP_ENV; определяет имя файла конфига `configs/<environment>.yaml`.
   environment: "dev"
 
   # Сколько секунд init-контейнеры ждут зависимости (TCP/HTTP).
@@ -48,8 +33,7 @@ global:
   commonAnnotations: {}
 
 # -----------------------------------------------------------------------------
-# Адреса зависимостей. Должны совпадать с infra-чартом (../infra) или
-# указывать на внешние managed-сервисы в prod.
+# Адреса зависимостей: совпадают с infra-чартом (../infra) или указывают на внешние managed-сервисы в prod.
 # -----------------------------------------------------------------------------
 dependencies:
   postgres:
@@ -140,10 +124,9 @@ observability:
   sampleLogs: false
 
 # -----------------------------------------------------------------------------
-# Секреты. Значения ниже используются ТОЛЬКО при secrets.create=true
-# (dev/staging). В prod ставьте create=false и existingSecret=<имя>.
+# Секреты. Значения ниже используются только при secrets.create=true.
 #
-# Ожидаемые ключи в Secret'е (одинаковые и для create=true, и для существующего):
+# Ожидаемые ключи в Secret'е (одинаковые для create=true и для существующего):
 #   app-secret
 #   postgres-auth-password, postgres-user-password,
 #   postgres-inventory-password, postgres-order-password
@@ -155,9 +138,8 @@ observability:
 # -----------------------------------------------------------------------------
 secrets:
   create: true
-  # Разрешить secrets.create=true при global.environment=prod/production.
-  # По умолчанию запрещено (fail-fast): пароли и приватный ключ JWT попали бы
-  # в values и Helm release.
+  # Разрешить secrets.create=true при global.environment=prod/production; по умолчанию
+  # запрещено, иначе пароли и приватный ключ JWT попали бы в values и Helm release.
   allowCreateInProduction: false
   # Имя создаваемого Secret'а (пусто = "<fullname>-secrets").
   name: ""
@@ -180,16 +162,13 @@ secrets:
     # Должен совпадать с infra.mongodb.auth.rootPassword.
     mongodbPassword: "admin123"
 
-    # Приватный RSA-ключ подписи JWT (PEM, многострочный).
-    # Задаётся так:
-    #   --set-file secrets.values.jwtPrivateKey=services/auth-service/certs/jwt-private.pem
-    # Пустое значение -> helm install падает с понятной ошибкой (fail).
+    # Приватный RSA-ключ подписи JWT (PEM, многострочный); пустое значение
+    # приводит к ошибке helm install.
     jwtPrivateKey: ""
 
     oauth:
-      # ВНИМАНИЕ: в коде поля clientID/clientSecret/redirectURL помечены
-      # env-required и валидируются ВСЕГДА, даже при enabled=false.
-      # Поэтому заглушка "disabled" обязательна, если OAuth выключен.
+      # Поля clientID/clientSecret/redirectURL помечены env-required и валидируются
+      # всегда, поэтому при выключенном OAuth значения остаются заглушкой "disabled".
       google:
         clientId: "disabled"
         clientSecret: "disabled"
@@ -214,7 +193,7 @@ auth:
     rotation:
       enabled: false
   oauth:
-    # clientID/clientSecret/redirectURL ВСЕГДА приходят из Secret'а
+    # clientID/clientSecret/redirectURL всегда приходят из Secret'а
     # (поля помечены env-required и валидируются даже при enabled=false).
     google:
       enabled: false
@@ -233,9 +212,8 @@ logging:
   addSource: false
 
 # -----------------------------------------------------------------------------
-# Rate limiter api-gateway (секция rate_limiter).
-# ВНИМАНИЕ: поля capacity/rate/window НЕ имеют env-тегов, поэтому
-# настраиваются ТОЛЬКО через yaml.
+# Rate limiter api-gateway (секция rate_limiter). Поля capacity/rate/window не имеют
+# env-тегов и настраиваются только через yaml.
 # -----------------------------------------------------------------------------
 rateLimiter:
   enabled: true
@@ -287,11 +265,8 @@ defaults:
   allowedOrigins:
     - "http://localhost:3000"
 
-  # Мягко распределять реплики сервиса по разным узлам
-  # (topologySpreadConstraints по kubernetes.io/hostname, ScheduleAnyway).
-  # Включать имеет смысл при replicaCount > 1 и кластере из нескольких узлов.
-  # На одноузловом кластере (minikube) безопасно: ScheduleAnyway не блокирует
-  # планирование. У сервиса можно переопределить своим
+  # Мягко распределять реплики сервиса по разным узлам (topologySpreadConstraints
+  # по kubernetes.io/hostname, ScheduleAnyway); переопределяется через
   # services.<name>.topologySpreadConstraints.
   spreadAcrossNodes: false
 
@@ -309,8 +284,8 @@ defaults:
     runAsGroup: 65534
     fsGroup: 65534
     fsGroupChangePolicy: OnRootMismatch
-    # Обязательно для Pod Security Standard "restricted":
-    # без seccompProfile поды не пройдут admission в таком namespace.
+    # Требуется для Pod Security Standard "restricted": без seccompProfile
+    # поды не пройдут admission в таком namespace.
     seccompProfile:
       type: RuntimeDefault
 
@@ -344,22 +319,8 @@ defaults:
 
 # -----------------------------------------------------------------------------
 # Миграции goose.
-#
-# ПОЧЕМУ post-install,pre-upgrade, а не pre-install:
-#   Job миграций читает пароль из Secret'а чарта. При pre-install Secret'а
-#   ещё не существует (хуки выполняются до основных ресурсов), поэтому Job
-#   упал бы с "secret not found". post-install гарантирует, что Secret и
-#   ConfigMap уже созданы, а pre-upgrade — что миграции применяются ДО
-#   обновления подов приложения (Secret уже есть с прошлого релиза).
-#
-#   Плата: при САМОЙ ПЕРВОЙ установке поды приложения стартуют раньше
-#   миграций. Для только что созданного кластера это безопасно (трафик ещё
-#   не идёт), потому что /readyz сервисов проверяет только доступность БД,
-#   а не схему.
-#
-# Если нужен строгий порядок «миграции -> поды» на первой установке:
-#   1) создайте Secret заранее (secrets.create=false, secrets.existingSecret);
-#   2) поставьте migrations.hook="pre-install,pre-upgrade".
+# hook="post-install,pre-upgrade": Job миграций читает пароль из Secret'а чарта,
+# а Secret и ConfigMap должны существовать до его запуска.
 # -----------------------------------------------------------------------------
 migrations:
   enabled: true
@@ -368,19 +329,17 @@ migrations:
   hookDeletePolicy: "before-hook-creation"
   backoffLimit: 3
   activeDeadlineSeconds: 900
-  # 0 = не удалять завершённый Job по TTL. Предыдущий Job и так удаляется
-  # политикой before-hook-creation при следующем релизе.
+  # 0 = не удалять завершённый Job по TTL; предыдущий Job удаляется политикой
+  # before-hook-creation при следующем релизе.
   ttlSecondsAfterFinished: 0
   # Сколько ждать доступности БД в init-контейнере.
   waitTimeoutSeconds: 600
 
 # -----------------------------------------------------------------------------
 # Ingress.
-# ingress.enabled — МАСТЕР-выключатель: Ingress создаётся, только если он
-# включён И у сервиса svc.ingress.enabled=true.
-#
-# По архитектуре наружу публикуется ТОЛЬКО api-gateway. Остальные сервисы —
-# внутренние; если нужен прямой доступ (отладка), включите svc.ingress.enabled.
+# ingress.enabled — мастер-выключатель: Ingress создаётся, только если он включён
+# и у сервиса svc.ingress.enabled=true. Наружу публикуется только api-gateway;
+# прямой доступ к внутренним сервисам включается через svc.ingress.enabled.
 # -----------------------------------------------------------------------------
 ingress:
   enabled: true
@@ -392,15 +351,13 @@ ingress:
   #      - api.ecommerce.local
 
 # -----------------------------------------------------------------------------
-# NetworkPolicy. По умолчанию ВЫКЛЮЧЕНО: при неверных правилах или CNI без
-# поддержки policy весь namespace перестанет общаться. Включайте в prod
-# осознанно, проверив трафик observability-стека (см. README).
+# NetworkPolicy. По умолчанию выключено: при неверных правилах или CNI без поддержки
+# policy весь namespace перестанет общаться.
 # -----------------------------------------------------------------------------
 networkPolicy:
   enabled: false
-  # Запретить весь входящий трафик в namespace по умолчанию и разрешать
-  # только перечисленные потоки. Требует CNI с поддержкой NetworkPolicy
-  # (Calico, Cilium, Antrea...). kind/minikube по умолчанию НЕ поддерживают.
+  # Запретить весь входящий трафик в namespace по умолчанию и разрешать только
+  # перечисленные потоки; требует CNI с поддержкой NetworkPolicy.
   defaultDenyIngress: true
   # Метки подов инфраструктуры (infra-чарт).
   infrastructurePodLabels:
@@ -408,9 +365,8 @@ networkPolicy:
   # Метки подов observability-стека (observability-чарт).
   observabilityPodLabels:
     app.kubernetes.io/name: observability
-  # Дополнительные селекторы подов, которым разрешён вход во ВСЕ сервисы.
-  # Например, поды другого namespace'а (metrics/ingress) — тогда используйте
-  # namespaceSelector.
+  # Дополнительные селекторы подов, которым разрешён вход во все сервисы
+  # (например, поды другого namespace'а через namespaceSelector).
   extraIngressRules: []
   #  - from:
   #      - namespaceSelector:
@@ -436,8 +392,7 @@ services:
     grpc: null
     secrets:
       redisPassword: true
-    # Ждём зависимости, без которых api-gateway не стартует
-    # (NewClient(redis) и GetPublicKey(auth-service) выполняются синхронно).
+    # Зависимости, без которых api-gateway не стартует.
     waitFor:
       - name: redis
         host: "redis"
@@ -504,7 +459,7 @@ services:
         host: "schema-registry"
         port: 8081
     # Какая БД из dependencies.postgres используется сервисом
-    # (определяет и ключ пароля в Secret'е: postgres-<database>-password).
+    # (определяет ключ пароля в Secret'е: postgres-<database>-password).
     database: "auth"
     migration:
       enabled: true

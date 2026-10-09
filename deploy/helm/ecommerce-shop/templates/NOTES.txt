@@ -34,9 +34,6 @@ ecommerce-shop установлен.
 Точка входа (Ingress):
 
   http://{{ $gwIngress.host }}{{ $gwIngress.path | default "/" }}
-  # Нужен адрес ingress-controller'а, например для minikube:
-  #   minikube tunnel           (если ingress addon включён)
-  #   kubectl -n ingress-nginx get svc
 {{- end }}
 
 {{- if .Values.secrets.create }}
@@ -55,6 +52,5 @@ ecommerce-shop установлен.
 
   helm upgrade {{ .Release.Name }} <chart> -n {{ .Release.Namespace }} \
     --reuse-values --set observability.enabled=true
-  # при этом otel-collector должен быть доступен по
-  # {{ .Values.observability.otel.endpoint }}
+  # otel-collector: {{ .Values.observability.otel.endpoint }}
 {{- end }}

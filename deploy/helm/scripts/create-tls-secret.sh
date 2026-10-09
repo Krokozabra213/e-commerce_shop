@@ -2,31 +2,18 @@
 # =============================================================================
 # create-tls-secret.sh — самоподписанный TLS-сертификат для Ingress
 # =============================================================================
-# Нужен, когда домена и сертификата от удостоверяющего центра ещё нет, а HTTPS
-# через единую точку входа (ingress-nginx) проверить надо.
-#
-# Что делает:
-#   1. генерирует приватный ключ и самоподписанный сертификат с SAN для HOST;
-#   2. создаёт/обновляет Secret типа kubernetes.io/tls в namespace.
-#
-# Использование:
-#   HOST=api.ecommerce.local ./create-tls-secret.sh
-#   HOST=api.example.com EXTRA_HOSTS="www.example.com" ./create-tls-secret.sh
+# Генерирует приватный ключ и самоподписанный сертификат с SAN для HOST и
+# создаёт/обновляет Secret типа kubernetes.io/tls в namespace.
 #
 # Переменные:
-#   HOST          основной CN/SAN (по умолчанию api.ecommerce.local)
+#   HOST          основной CN/SAN (api.ecommerce.local)
 #   EXTRA_HOSTS   дополнительные DNS-имена через запятую
-#   EXTRA_IPS     дополнительные IP через запятую (например, IP сервера)
+#   EXTRA_IPS     дополнительные IP через запятую
 #   NAMESPACE     namespace (ecommerce)
-#   SECRET_NAME   имя Secret'а (ecommerce-tls) — должно совпадать с
-#                 ingress.tls[].secretName в values
+#   SECRET_NAME   имя Secret'а (ecommerce-tls), совпадает с ingress.tls[].secretName
 #   DAYS          срок действия (825)
-#   OUT_DIR       куда положить ключ и сертификат (deploy/.tools/tls — gitignored)
+#   OUT_DIR       каталог для ключа и сертификата (deploy/.tools/tls)
 #   KUBECTL       бинарь kubectl
-#
-# ВАЖНО: браузер будет ругаться на самоподписанный сертификат — это ожидаемо,
-# нужно один раз нажать «Дополнительно → Перейти». Для прода используйте
-# cert-manager + Let's Encrypt (см. DEPLOY-RUNBOOK.md, §11).
 # =============================================================================
 set -euo pipefail
 
@@ -48,7 +35,7 @@ die()  { printf '\033[1;31m[x]\033[0m %s\n' "$*" >&2; exit 1; }
 
 command -v openssl >/dev/null || die "не найден openssl"
 
-# --- SAN: основной хост + localhost/127.0.0.1 (удобно для локальной проверки) --
+# --- SAN: основной хост + localhost/127.0.0.1 ---------------------------------
 mapfile -t hosts < <(
   printf '%s\n' "${HOST}"
   printf '%s\n' localhost
@@ -56,7 +43,7 @@ mapfile -t hosts < <(
     printf '%s\n' ${EXTRA_HOSTS} | tr ',' '\n' | tr -d ' '
   fi
 )
-# 127.0.0.1 добавляем всегда, дальше — EXTRA_IPS
+# Дополнительные IP: 127.0.0.1 и EXTRA_IPS
 mapfile -t ips < <(
   printf '%s\n' 127.0.0.1
   if [ -n "${EXTRA_IPS}" ]; then

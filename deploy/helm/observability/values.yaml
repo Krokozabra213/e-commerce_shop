@@ -1,33 +1,26 @@
 # =============================================================================
 # observability — Helm values
-# -----------------------------------------------------------------------------
 # Стек наблюдаемости: OTel Collector -> Tempo (traces), Loki (logs),
 # Prometheus (metrics), Grafana (UI).
-#
-# ВАЖНО: имена Service'ов НЕ префиксуются именем релиза. Это сделано
-# намеренно: конфиги, перенесённые из infra/observability/*.yaml, ссылаются
-# на `tempo:4317`, `loki:3100`, `prometheus:9090`. См. fullnameOverride ниже.
-# Из-за этого в одном namespace допустим только один релиз чарта (либо
-# переопределите fullnameOverride у всех компонентов и endpoint'ы в конфигах).
+# Имена Service'ов не префиксуются релизом: конфиги ссылаются на `tempo:4317`,
+# `loki:3100`, `prometheus:9090`, поэтому в одном namespace допустим один релиз.
 # =============================================================================
 
-# Глобальные настройки (зарезервировано под будущие общие параметры).
+# Глобальные настройки.
 global:
-  # Только ХОСТ реестра (например "registry.example.com"). Путь/проект уже
-  # входит в <component>.image.repository. Пусто = Docker Hub.
+  # Только хост реестра; путь/проект входит в <component>.image.repository. Пусто = Docker Hub.
   imageRegistry: ""
   # Общие pull-секреты; <component>.imagePullSecrets имеет приоритет.
   imagePullSecrets: []
 
 # -----------------------------------------------------------------------------
 # OpenTelemetry Collector
-# Принимает OTLP (gRPC/HTTP), пишет traces в Tempo, logs в Loki,
-# а metrics отдаёт через Prometheus exporter (порт 8889) — Go-сервисы
-# НЕ отдают /metrics, поэтому Prometheus скрейпит именно коллектор.
+# Принимает OTLP (gRPC/HTTP), пишет traces в Tempo, logs в Loki, а metrics
+# отдаёт через Prometheus exporter (порт 8889); Prometheus скрейпит коллектор.
 # -----------------------------------------------------------------------------
 otel-collector:
   enabled: true
-  # Стабильное короткое имя Service'а. НЕ меняйте без правки конфигов.
+  # Стабильное короткое имя Service'а.
   fullnameOverride: otel-collector
 
   image:
@@ -35,8 +28,7 @@ otel-collector:
     tag: "0.149.0"
     pullPolicy: IfNotPresent
 
-  # Коллектор stateless: масштабируется горизонтально, но при нескольких
-  # репликах Prometheus exporter 8889 отдаёт метрики только одной из них.
+  # Коллектор stateless; при нескольких репликах метрики 8889 отдаёт только одна.
   replicaCount: 1
 
   serviceAccount:
@@ -90,11 +82,6 @@ otel-collector:
   affinity: {}
   extraEnv: []
 
-  # Конфиг перенесён из infra/observability/otel-collector.yaml.
-  # Изменения относительно docker-compose версии (см. README):
-  #   * добавлен exporter `prometheus` (8889) + pipeline `metrics`
-  #   * добавлен extension `health_check` (13133) для k8s-проб
-  #   * добавлен блок service.telemetry.metrics.address (8888)
   config: |
     receivers:
       otlp:
@@ -120,9 +107,7 @@ otel-collector:
       otlphttp/loki:
         endpoint: http://loki:3100/otlp
 
-      # Go-сервисы пушат OTLP и не имеют /metrics — Prometheus скрейпит этот
-      # exporter. resource_to_telemetry_conversion превращает resource
-      # attributes (service.name и т.п.) в labels метрик.
+      # resource_to_telemetry_conversion превращает resource attributes (service.name и т.п.) в labels метрик.
       prometheus:
         endpoint: 0.0.0.0:8889
         enable_open_metrics: true
@@ -225,7 +210,6 @@ tempo:
   affinity: {}
   extraEnv: []
 
-  # Конфиг перенесён из infra/observability/tempo.yaml без изменений.
   # Пути /var/tempo/wal и /var/tempo/blocks указывают на PVC (mountPath /var/tempo).
   config: |
     stream_over_http_enabled: true
@@ -317,9 +301,8 @@ loki:
   affinity: {}
   extraEnv: []
 
-  # Конфиг перенесён из infra/observability/loki.yaml без изменений.
-  # /loki/chunks и /loki/rules указывают на PVC (mountPath /loki).
-  # common.ring.instance_addr=127.0.0.1 корректен для 1 реплики.
+  # /loki/chunks и /loki/rules указывают на PVC (mountPath /loki);
+  # common.ring.instance_addr=127.0.0.1 — для 1 реплики.
   config: |
     auth_enabled: false
 
@@ -380,7 +363,7 @@ prometheus:
 
   image:
     repository: prom/prometheus
-    # Актуальный стабильный тег Prometheus 3.x (pinned).
+    # Стабильный тег Prometheus 3.x.
     tag: "v3.1.0"
     pullPolicy: IfNotPresent
 
@@ -436,9 +419,6 @@ prometheus:
   affinity: {}
   extraEnv: []
 
-  # ВНИМАНИЕ: если otel-collector.enabled=false, таргеты otel-collector:8889/8888
-  # останутся в конфиге и будут в состоянии down. Уберите их из config
-  # (или переопределите prometheus.config целиком) при отключении коллектора.
   config: |
     global:
       scrape_interval: 15s
@@ -519,10 +499,7 @@ grafana:
       drop:
         - ALL
 
-  # Пароль администратора. Используется только если existingSecret не задан.
-  # Пусто => при установке/обновлении генерируется случайный пароль
-  # (helm randAlphaNum). Для стабильного пароля задайте значение явно
-  # ИЛИ (в prod) используйте existingSecret.
+  # Пароль администратора; пусто = случайный пароль при установке.
   adminPassword: ""
   adminUser: admin
 
@@ -530,13 +507,13 @@ grafana:
   existingSecret: ""
   existingSecretKey: admin-password
 
-  # Анонимный доступ (как в docker-compose: роль Admin).
+  # Анонимный доступ.
   anonymous:
     # true по умолчанию в dev, false в values-prod.yaml.
     enabled: true
     orgRole: Admin
 
-  # Прочие настройки Grafana (совпадают с docker-compose).
+  # Прочие настройки Grafana.
   logLevel: warn
   defaultTheme: dark
   featureToggles:
@@ -560,10 +537,7 @@ grafana:
   affinity: {}
   extraEnv: []
 
-  # Datasource provisioning (перенесён из
-  # infra/observability/grafana/provisioning/datasources/datasources.yaml)
-  # + добавлен Prometheus (uid: prometheus, url http://prometheus:9090).
-  # `$${__value.raw}` — литерал Grafana (экранирование $ в provisioning).
+  # Datasource provisioning; $${__value.raw} — литерал Grafana (экранирование $).
   datasources: |
     apiVersion: 1
 

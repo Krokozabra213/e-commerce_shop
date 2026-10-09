@@ -1,33 +1,23 @@
 # =============================================================================
 # ecommerce-infra — values по умолчанию
-# =============================================================================
-# ВАЖНО про имена Service'ов.
-# Имена сервисов НЕ префиксуются именем релиза (`serviceName` в каждой секции).
-# Это сделано осознанно: строки подключения внутри сервисов и внутри конфигов
-# (например `kafka:29092`, `http://schema-registry:8081`) ссылаются на короткие
-# DNS-имена. Благодаря этому app-чарт (`../ecommerce-shop`) и observability-чарт
-# не зависят от имени релиза инфраструктуры.
-# Следствие: в одном namespace может жить только один релиз этого чарта.
+# Имена Service'ов не префиксуются именем релиза: строки подключения ссылаются
+# на короткие DNS-имена, поэтому в одном namespace допустим только один релиз.
 # =============================================================================
 
 nameOverride: ""
 fullnameOverride: ""
 
 global:
-  # Например "registry.example.com/myteam". Пусто = Docker Hub.
+  # Реестр образов; пусто = Docker Hub.
   imageRegistry: ""
   imagePullSecrets: []
   imagePullPolicy: IfNotPresent
-  # Образ для init-контейнеров ожидания готовности зависимостей (nc -z).
-  # ВНИМАНИЕ: ПОЛНАЯ ссылка на образ; global.imageRegistry к ней НЕ применяется
-  # (в приватных реестрах busybox обычно лежит по пути library/busybox, а не
-  # там же, где образы приложения).
+  # Образ init-контейнеров ожидания (nc -z); полная ссылка, global.imageRegistry не применяется.
   waitImage: "busybox:1.36"
 
 # -----------------------------------------------------------------------------
-# PostgreSQL — отдельный инстанс на каждый сервис (как в docker-compose.yaml).
-# Все инстансы используют общий пользователь/пароль, но каждый имеет свою БД
-# и свой PVC. Пароль можно переопределить персонально для инстанса.
+# PostgreSQL — отдельный инстанс на каждый сервис (общий пользователь/пароль,
+# своя БД и свой PVC).
 # -----------------------------------------------------------------------------
 postgresql:
   enabled: true
@@ -41,10 +31,9 @@ postgresql:
 
   auth:
     username: postgres
-    # Дефолт для всех инстансов. Переопределяется в instances.<key>.password.
+    # Дефолт для всех инстансов; переопределяется в instances.<key>.password.
     password: postgres
-    # Если задано — Secret не создаётся, пароли берутся из существующего Secret
-    # по ключам "<key>-password" (auth-password, user-password, ...).
+    # Если задано — Secret не создаётся, пароли берутся по ключам "<key>-password".
     existingSecret: ""
     # Имя создаваемого Secret'а.
     secretName: "postgresql-credentials"
@@ -76,8 +65,7 @@ postgresql:
     seccompProfile:
       type: RuntimeDefault
 
-  # Дополнительные параметры PostgreSQL (передаются как аргументы -c).
-  # Пример: max_connections: "200"
+  # Дополнительные параметры PostgreSQL (аргументы -c).
   extraConfig: {}
 
   # Инстансы. Ключ используется в именах ресурсов и в ключах Secret'а.
@@ -143,7 +131,7 @@ redis:
 
   config:
     appendonly: true
-    # redis-server --maxmemory ... ; пример: "256mb"
+    # Лимит памяти redis-server (например "256mb").
     maxmemory: ""
     maxmemoryPolicy: "noeviction"
     extraArgs: []
@@ -227,9 +215,8 @@ mongodb:
   podLabels: {}
 
 # -----------------------------------------------------------------------------
-# Kafka в режиме KRaft (single-node, broker+controller).
-# CLUSTER_ID должен быть base64-encoded UUID и НЕ должен меняться для
-# уже отформатированного PVC — иначе брокер не стартует.
+# Kafka в режиме KRaft (single-node, broker+controller); CLUSTER_ID — base64 UUID,
+# неизменный для уже отформатированного PVC.
 # -----------------------------------------------------------------------------
 kafka:
   enabled: true
@@ -299,10 +286,6 @@ kafka:
     partitions: 3
     replicationFactor: 1
     # Полный список топиков (включая DLQ).
-    # Источник: infra/kafka/topics.go + dlqTopic из configs/*.yaml всех сервисов.
-    # ВНИМАНИЕ: docker-compose.yaml создаёт только 10 из них и забывает
-    # order.create-payment / payment.succeded / payment.failed, в которые
-    # публикуется order-service (см. internal/service/order/handle_*.go).
     list:
       - name: user.created
       - name: user.created.dlq
@@ -337,10 +320,7 @@ schemaRegistry:
   compatibilityLevel: "backward"
   logLevel: "INFO"
 
-  # Адрес Kafka для Schema Registry. Пусто = Kafka из этого же чарта
-  # (<kafka.serviceName>:<internal port>). Задайте явно, если
-  # kafka.enabled=false и брокер внешний (Strimzi/managed):
-  #   kafkaBootstrapServers: "kafka-bootstrap.kafka.svc.cluster.local:9092"
+  # Адрес Kafka для Schema Registry; пусто = Kafka из этого же чарта (<kafka.serviceName>:<internal port>).
   kafkaBootstrapServers: ""
 
   replicas: 1

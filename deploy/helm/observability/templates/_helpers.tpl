@@ -1,21 +1,10 @@
 {{- /*
-================================================================================
 Helpers for the "observability" chart.
-==============================================================================
 
-ВАЖНО (IMPORTANT): этот чарт НЕ добавляет имя релиза к именам сервисов.
-
-Конфиги, перенесённые из docker-compose (infra/observability/*.yaml), ссылаются
-на DNS-имена сервисов жёстко: `tempo:4317`, `loki:3100`, `prometheus:9090`.
-Поэтому имена Service'ов обязаны оставаться короткими и стабильными:
-`otel-collector`, `tempo`, `loki`, `prometheus`, `grafana`.
-
-Каждый компонент имеет свой `fullnameOverride` (по умолчанию равен имени
-компонента). Меняйте его только если понимаете, что делаете: при этом нужно
-поправить и конфиги (endpoint'ы) в values.yaml.
-
-Следствие: в одном namespace нельзя ставить два релиза этого чарта без
-переопределения `fullnameOverride` у всех компонентов.
+Имена Service'ов не префиксуются именем релиза: конфиги ссылаются на короткие
+DNS-имена `tempo:4317`, `loki:3100`, `prometheus:9090`; каждый компонент имеет
+fullnameOverride, равный имени компонента. В одном namespace допустим только
+один релиз этого чарта.
 */ -}}
 
 {{- /*
@@ -27,7 +16,6 @@ Chart name and version, used for the helm.sh/chart label.
 
 {{- /*
 Common labels for every resource.
-Usage: {{- include "observability.labels" . | nindent 4 }}
 */ -}}
 {{- define "observability.labels" -}}
 helm.sh/chart: {{ include "observability.chart" . }}
@@ -39,7 +27,6 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 
 {{- /*
 Labels for a single component.
-Usage: {{- include "observability.componentLabels" (dict "root" . "component" "tempo") | nindent 4 }}
 */ -}}
 {{- define "observability.componentLabels" -}}
 {{ include "observability.labels" .root }}
@@ -47,8 +34,7 @@ app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 
 {{- /*
-Selector labels for a single component. Must stay immutable.
-Usage: {{- include "observability.selectorLabels" (dict "root" . "component" "tempo") | nindent 6 }}
+Selector labels for a single component; immutable.
 */ -}}
 {{- define "observability.selectorLabels" -}}
 app.kubernetes.io/name: {{ .root.Chart.Name }}
@@ -58,8 +44,6 @@ app.kubernetes.io/component: {{ .component }}
 
 {{- /*
 Short, stable, release-independent resource name for a component.
-Resolution order: .Values.<component>.fullnameOverride -> <component>.
-Usage: {{- include "observability.componentName" (dict "root" . "component" "tempo") }}
 */ -}}
 {{- define "observability.componentName" -}}
 {{- $name := .component -}}
@@ -72,7 +56,6 @@ Usage: {{- include "observability.componentName" (dict "root" . "component" "tem
 
 {{- /*
 ServiceAccount name for a component.
-Usage: {{- include "observability.serviceAccountName" (dict "root" . "component" "tempo") }}
 */ -}}
 {{- define "observability.serviceAccountName" -}}
 {{- $cfg := index .root.Values .component -}}
@@ -85,7 +68,6 @@ Usage: {{- include "observability.serviceAccountName" (dict "root" . "component"
 
 {{- /*
 Fully qualified image reference: repository:tag.
-Usage: {{- include "observability.image" (dict "root" . "component" "tempo") }}
 */ -}}
 {{- define "observability.image" -}}
 {{- $cfg := index .root.Values .component -}}
@@ -99,8 +81,7 @@ Usage: {{- include "observability.image" (dict "root" . "component" "tempo") }}
 {{- end -}}
 
 {{- /*
-Checksum of a component ConfigMap payload, used to force a rollout on config change.
-Usage: {{- include "observability.configChecksum" (dict "root" . "component" "tempo" "config" $c.config) }}
+Checksum of a component ConfigMap payload; forces a rollout on config change.
 */ -}}
 {{- define "observability.configChecksum" -}}
 {{- printf "%s" .config | sha256sum -}}
@@ -108,7 +89,6 @@ Usage: {{- include "observability.configChecksum" (dict "root" . "component" "te
 
 {{- /*
 Image pull secrets block, rendered only when configured.
-Usage: {{- include "observability.imagePullSecrets" (dict "root" . "component" "tempo") | nindent 6 }}
 */ -}}
 {{- define "observability.imagePullSecrets" -}}
 {{- $cfg := index .root.Values .component -}}
@@ -121,7 +101,7 @@ imagePullSecrets:
 {{- end -}}
 
 {{- /*
-Version of the chart, exposed for NOTES.txt.
+Enabled components list for NOTES.txt.
 */ -}}
 {{- define "observability.notesEnabledList" -}}
 {{- $components := list "otel-collector" "tempo" "loki" "prometheus" "grafana" -}}

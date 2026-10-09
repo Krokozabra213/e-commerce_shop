@@ -1,11 +1,6 @@
 # =============================================================================
 # e-commerce_shop — деплой в Kubernetes
 # =============================================================================
-# Все команды выполняются из корня репозитория.
-#   make -C deploy/helm <target>
-# или
-#   cd deploy/helm && make <target>
-#
 # Переопределяемые переменные:
 #   HELM=helm                       бинарь helm
 #   NAMESPACE=ecommerce             namespace
@@ -27,8 +22,7 @@ NAMESPACE   ?= ecommerce
 ENV         ?= dev
 REGISTRY    ?= registry.example.com
 PROJECT     ?= krokozabra213
-# Тег по умолчанию = appVersion чарта приложения (единый источник истины,
-# см. deploy/helm/ecommerce-shop/Chart.yaml). Переопределяется: make TAG=1.2.3 ...
+# Тег по умолчанию = appVersion чарта приложения (см. Chart.yaml).
 TAG         ?= $(shell sed -nE 's/^appVersion:[[:space:]]*"?([^"[:space:]]+)"?[[:space:]]*$$/\1/p' $(CHART_APP)/Chart.yaml | head -1)
 
 RELEASE_INFRA ?= ecommerce-infra
@@ -36,9 +30,7 @@ RELEASE_APP   ?= ecommerce
 RELEASE_OBS   ?= observability
 
 ROOT        := $(shell cd ../.. && pwd)
-# Пути относительно каталога этого Makefile (deploy/helm), т.е. при запуске
-# `make -C deploy/helm ...`. Раньше здесь стоял префикс `../`, из-за чего
-# цели искали несуществующие deploy/infra, deploy/ecommerce-shop и т.д.
+# Пути к чартам относительно каталога этого Makefile (infra / ecommerce-shop / observability).
 CHART_INFRA := infra
 CHART_APP   := ecommerce-shop
 CHART_OBS   := observability
@@ -49,8 +41,7 @@ VALUES_OBS   := $(CHART_OBS)/values-$(ENV).yaml
 
 # Приватный ключ JWT для dev. В prod ключ берётся из существующего Secret'а.
 JWT_KEY     ?= $(ROOT)/services/auth-service/certs/jwt-private.pem
-# Для lint/template подставляется ФИКТИВНЫЙ ключ: настоящий PEM не нужен, а его
-# попадание в build/ (пусть и git-ignored) нежелательно.
+# Для lint/template подставляется фиктивный ключ JWT.
 JWT_SET_FILE = $(if $(wildcard $(JWT_KEY)),--set-file secrets.values.jwtPrivateKey=$(JWT_KEY),)
 JWT_DUMMY    = --set secrets.values.jwtPrivateKey=VALIDATION-ONLY-NOT-A-REAL-KEY
 
@@ -105,15 +96,10 @@ build-images: ## Собрать образы сервисов и миграци�
 push-images: ## Собрать и запушить образы
 	REGISTRY=$(REGISTRY) PROJECT=$(PROJECT) TAG=$(TAG) PUSH=1 ./scripts/build-images.sh
 
-.PHONY: kind-load
-kind-load: ## Загрузить образы в kind (без реестра)
+.PHONY: k3s-load
+k3s-load: ## Собрать образы и импортировать в containerd k3s (нужен sudo)
 	./scripts/build-images.sh
-	kind load docker-image $(shell ./scripts/build-images.sh --print-tags)
-
-.PHONY: minikube-load
-minikube-load: ## Загрузить образы в minikube (без реестра)
-	./scripts/build-images.sh
-	minikube image load $(shell ./scripts/build-images.sh --print-tags)
+	./scripts/build-images.sh --print-tags | xargs -I{} sh -c 'docker save {} | sudo k3s ctr images import -'
 
 # -----------------------------------------------------------------------------
 # Установка

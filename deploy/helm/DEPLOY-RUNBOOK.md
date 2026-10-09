@@ -1,15 +1,19 @@
-# Runbook: образы в GHCR и запуск в minikube
+# Runbook: образы в GHCR и запуск в k3s
 
 Пошаговая инструкция «от нуля до работающего кластера» для чартов из
 `deploy/helm/`. Дополняет [README.md](README.md) (там — устройство чартов и
 разбор кода сервисов); здесь — конкретные команды и подводные камни.
 
+Короткая памятка по всему циклу (проверки перед пушем, запуск после
+клонирования, переключение профилей и версий) — [`CHECKLIST.md`](../../CHECKLIST.md)
+в корне репозитория.
+
 Оглавление:
 
 * [0. Что именно деплоится](#0-что-именно-деплоится)
 * [1. Проверка инструментов](#1-проверка-инструментов)
-* [2. Путь A: minikube без реестра (быстрее всего)](#2-путь-a-minikube-без-реестра-быстрее-всего)
-* [3. Путь B: GitHub Container Registry (GHCR)](#3-путь-b-github-container-registry-ghcr)
+* [2. Локальный кластер k3s](#2-локальный-кластер-k3s)
+* [3. Образы: сборка и публикация в GHCR](#3-образы-сборка-и-публикация-в-ghcr)
 * [4. Секреты, ключи и переменные окружения](#4-секреты-ключи-и-переменные-окружения)
 * [5. Доступ к сервисам снаружи](#5-доступ-к-сервисам-снаружи)
 * [6. Smoke-тест](#6-smoke-тест)
@@ -63,7 +67,6 @@
 
 ```bash
 docker version          # нужен рабочий docker
-minikube version
 kubectl version --client
 helm version
 openssl version         # для проверки/генерации ключа JWT
@@ -91,12 +94,14 @@ make -C deploy/helm validate    # + render + прогон конфигов че�
 
 ---
 
-## 2. Путь A: minikube без реестра (быстрее всего)
+## 2. Локальный кластер k3s
 
-Реестр вообще не нужен: образы собираются и грузятся прямо в Docker-демон
-minikube. Рекомендую начинать с этого, а GHCR подключить вторым шагом.
+k3s ставится как systemd-служба, Traefik отключён (иначе он занимает 80/443),
+а ingress-nginx ставится отдельным чартом. `kubectl port-forward` для доступа
+снаружи **не нужен никогда**: встроенный ServiceLB выдаёт ingress-контроллеру
+IP машины, поэтому 80/443 слушают прямо на хосте.
 
-### A0. Чек-лист со свежего клона
+### 2.1 Чек-лист со свежего клона
 
 Проверено на копии репозитория без всех gitignored-файлов (то есть как после
 `git clone`): **дополнительно готовить ничего не нужно**. Чего в клоне нет и
@@ -106,136 +111,77 @@ minikube. Рекомендую начинать с этого, а GHCR подк�
 |---|---|---|
 | `services/*/.env` | в `.gitignore` | скрипт берёт умолчания, OAuth-креды становятся заглушкой `disabled` — поды стартуют, вход через Google/GitHub не работает |
 | `services/auth-service/certs/jwt-private.pem` | в `services/auth-service/.gitignore` | `deploy.sh` и `create-app-secret.sh` **сгенерируют** его сами (RSA-2048) |
-| собранных образов | это артефакты | собираются шагом A2 |
+| собранных образов | это артефакты | тянутся готовыми из GHCR (§3), для итераций собираются локально (§2.6) |
 
-Порядок целиком:
+Все команды ниже выполняются **из корня репозитория** (`e-commerce_shop/`).
+
+### 2.2 Установка k3s и kubeconfig
+
+Traefik отключён на этапе установки: иначе он займёт 80/443, а чарт
+рассчитывает на `ingressClassName: nginx`.
 
 ```bash
-# 1) инструменты: docker, minikube, kubectl, helm, openssl, python3
-docker version && minikube version && kubectl version --client && helm version
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable traefik" sh -
 
-# 2) кластер + ingress
-minikube start --cpus 4 --memory 8192 --driver docker
-minikube addons enable ingress
-
-# 3) образы (собираются на хосте, затем грузятся в minikube — см. A2)
-deploy/helm/scripts/build-images.sh
-minikube image load $(deploy/helm/scripts/build-images.sh --print-tags)
-
-# 4) установка: infra + приложение (ключ JWT сгенерируется сам)
-deploy/helm/deploy.sh
-
-# 5) проверка
-kubectl -n ecommerce get pods
-kubectl -n ecommerce port-forward svc/api-gateway 8080:4000 &
-curl -s http://localhost:8080/healthz
+sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+sudo chown "$(id -u):$(id -g)" ~/.kube/config
+kubectl get nodes
 ```
 
-> `deploy.sh` создаёт Secret сам (`secrets.create=true`) и подставляет
-> сгенерированный ключ JWT. Если нужны **реальные** OAuth-креды — вместо шага 4
-> используйте `create-app-secret.sh` и профиль `values-local-tls.yaml`
-> (см. §4.2 и §12), потому что `deploy.sh` кладёт в OAuth заглушки `disabled`.
+Стек из 4 × PostgreSQL + Redis + MongoDB + Kafka + Schema Registry и 6 сервисов
+занимает около 6 ГБ RAM — на машине с 16 ГБ остаётся запас. Отдельного лимита,
+как у виртуальной машины, здесь нет: k3s использует память хоста.
 
-Проверить, что ключ действительно создан:
+`/etc/hosts` для локального запуска: строка `127.0.0.1 api.ecommerce.local` —
+корректна (k3s слушает 80/443 на самом хосте).
+
+### 2.3 ingress-nginx
+
+`hsts=false` нужен локально из-за самоподписанного сертификата.
 
 ```bash
-ls -l services/auth-service/certs/jwt-private.pem     # появится после deploy.sh
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+  --namespace ingress-nginx --create-namespace \
+  -f deploy/cluster/ingress-nginx-values.yaml \
+  --set controller.config.hsts=false \
+  --wait --timeout 10m
+
+kubectl -n ingress-nginx get svc ingress-nginx-controller   # EXTERNAL-IP = IP машины
+```
+
+`EXTERNAL-IP` сразу становится IP машины (ServiceLB), поэтому 80/443 слушаются
+на самом хосте — проброс портов и туннели не нужны.
+
+### 2.4 Секреты
+
+```bash
+DRY_RUN=1 deploy/helm/scripts/create-app-secret.sh   # посмотреть, что и откуда возьмётся
+REDIRECT_BASE=http://localhost deploy/helm/scripts/create-app-secret.sh
+
+HOST=api.ecommerce.local deploy/helm/scripts/create-tls-secret.sh
+kubectl apply -f deploy/cluster/ingress-localhost.yaml
+```
+
+`create-app-secret.sh` создаёт Secret `ecommerce-shop-secrets`: пароли БД/Redis,
+собранный `MONGO_URI`, приватный ключ JWT из
+`services/auth-service/certs/jwt-private.pem` и **реальные** OAuth-креды из
+`services/auth-service/.env`. Подробности — §4.2.
+
+`create-tls-secret.sh` выпускает самоподписанный сертификат для
+`api.ecommerce.local`, а `ingress-localhost.yaml` публикует тот же
+`api-gateway` на `http://localhost` (нужно для локального OAuth, §12.6).
+
+Проверить, что ключ JWT действительно создан:
+
+```bash
+ls -l services/auth-service/certs/jwt-private.pem
 kubectl -n ecommerce get secret ecommerce-shop-secrets -o jsonpath='{.data.jwt-private-key}' \
   | base64 -d | openssl pkey -noout && echo "ключ корректен"
 ```
 
-### A1. Кластер и ingress
-
-```bash
-minikube start --cpus 4 --memory 8192 --disk-size 20g --driver docker
-minikube addons enable ingress
-```
-
-Памяти нужно много: 4 × PostgreSQL + Redis + MongoDB + Kafka + Schema Registry
-+ 6 сервисов. 6 ГБ — минимум, 8 ГБ — комфортно.
-
-Ingress нужен потому, что `values-dev.yaml` задаёт `ingress.enabled: true`
-с `className: nginx`, а наружу публикуется только `api-gateway`
-(host `api.ecommerce.local`).
-
-### A2. Сборка образов
-
-Способ 1 — собирать сразу в демон minikube (без «перевозки» образов):
-
-```bash
-# ВАЖНО: `minikube docker-env` печатает синтаксис той оболочки, что в $SHELL.
-# Если $SHELL — fish, вывод будет fish-синтаксисом и в bash не сработает.
-#   bash / zsh:
-eval "$(minikube docker-env --shell bash)"     # docker теперь смотрит в демон minikube
-#   fish:
-minikube docker-env | source
-
-deploy/helm/scripts/build-images.sh
-
-# откатить обратно, когда закончите:
-eval "$(minikube docker-env -u --shell bash)"  # bash/zsh
-minikube docker-env -u | source                 # fish
-```
-
-> **Проверено на практике:** этот способ ломается, если у вас активен VPN или
-> нестандартный MTU. Симптом — сборка падает на `RUN go mod download` с
-> `net/http: TLS handshake timeout` к `proxy.golang.org`, хотя образ
-> `golang:1.26-alpine` при этом скачивается нормально (его тянет демон хоста, а
-> не контейнер). Причина: у контейнера внутри minikube MTU 1500, а туннель
-> пропускает меньше, поэтому «тяжёлое» TLS-рукопожатие с цепочкой сертификатов
-> не проходит. Быстрая проверка — доступен ли прокси с хоста:
->
-> ```bash
-> curl -sS -o /dev/null -w '%{http_code}\n' --max-time 20 \
->   https://proxy.golang.org/github.com/google/uuid/@v/list   # ожидаем 200
-> ```
->
-> Если с хоста 200, а в minikube — timeout, собирайте Способом 2.
-
-Способ 2 — собрать локально и загрузить в кластер (надёжнее):
-
-```bash
-deploy/helm/scripts/build-images.sh
-minikube image load $(deploy/helm/scripts/build-images.sh --print-tags)
-
-# или одной командой через make:
-make -C deploy/helm minikube-load
-```
-
-Что соберётся (тег по умолчанию — `appVersion` чарта, сейчас `v1.0.0`;
-`PROJECT` по умолчанию `krokozabra213` — совпадает с `image.repository` в values):
-
-```
-krokozabra213/api-gateway:v1.0.0            krokozabra213/auth-service-migrate:v1.0.0
-krokozabra213/auth-service:v1.0.0           krokozabra213/user-service-migrate:v1.0.0
-krokozabra213/user-service:v1.0.0           krokozabra213/inventory-service-migrate:v1.0.0
-krokozabra213/product-service:v1.0.0        krokozabra213/order-service-migrate:v1.0.0
-krokozabra213/inventory-service:v1.0.0
-krokozabra213/order-service:v1.0.0
-```
-
-> Сборка идёт из **корня репозитория** (context = `.`): `go.work` объединяет
-> модули `api`, `infra`, `services/*`, и каждый Dockerfile копирует весь
-> workspace. Первый билд долгий — тянет зависимости Go.
-
-Проверить, что образы на месте (для способа 1):
-
-```bash
-eval "$(minikube docker-env --shell bash)" && docker images | grep krokozabra213
-```
-
-### A3. Секреты
-
-```bash
-DRY_RUN=1 deploy/helm/scripts/create-app-secret.sh   # посмотреть, что и откуда возьмётся
-deploy/helm/scripts/create-app-secret.sh             # создать Secret
-```
-
-Скрипт создаёт Secret `ecommerce-shop-secrets`: пароли БД/Redis, собранный
-`MONGO_URI`, приватный ключ JWT из `services/auth-service/certs/jwt-private.pem`
-и **реальные** OAuth-креды из `services/auth-service/.env`. Подробности — §4.
-
-### A4. Установка
+### 2.5 Установка инфраструктуры и приложения
 
 ```bash
 # 1/2 инфраструктура
@@ -244,15 +190,19 @@ helm upgrade --install ecommerce-infra deploy/helm/infra \
   -f deploy/helm/infra/values-dev.yaml \
   --wait --timeout 15m
 
-# 2/2 приложение — со СВОИМ Secret'ом (secrets.create=false)
+# 2/2 приложение: HTTPS-профиль + готовые образы из GHCR
 helm upgrade --install ecommerce deploy/helm/ecommerce-shop \
   --namespace ecommerce \
   -f deploy/helm/ecommerce-shop/values-dev.yaml \
+  -f deploy/helm/ecommerce-shop/values-local-tls.yaml \
+  -f deploy/helm/ecommerce-shop/values-ghcr.yaml \
   --set secrets.create=false \
   --set secrets.existingSecret=ecommerce-shop-secrets \
   --set 'migrations.hook=pre-install\,pre-upgrade' \
   --wait --timeout 15m
 ```
+
+Образы в GHCR публичные, тянутся анонимно — pull-секрет не нужен.
 
 Разбор двух неочевидных флагов:
 
@@ -262,28 +212,37 @@ helm upgrade --install ecommerce deploy/helm/ecommerce-shop \
   понятным сообщением (fail-fast), а не создаст «тихо» неверный Secret.
 * `migrations.hook=pre-install,pre-upgrade` — миграции выполняются **до**
   создания подов приложения. Так можно, только если Secret уже существует
-  (мы его создали в A3). По умолчанию хук `post-install` — тогда на первой
+  (мы его создали в §2.4). По умолчанию хук `post-install` — тогда на первой
   установке поды стартуют раньше миграций (безопасно для пустого кластера, но
   менее строго). Обратите внимание на экранирование запятой: `\,` — иначе Helm
   воспримет её как разделитель аргументов `--set`.
 
-**Альтернатива «в одну команду»** (если OAuth не нужен):
+**Альтернатива «в одну команду»** (если OAuth не нужен): `deploy/helm/deploy.sh`
+ставит infra и приложение сам и даёт чарту создать Secret. Но тогда OAuth-креды
+будут заглушками `disabled` (в `values-dev.yaml`), а образы должны быть уже
+загружены в containerd k3s (§2.6).
+
+### 2.6 Локальная сборка образов (итерации по коду, без GHCR)
 
 ```bash
-deploy/helm/deploy.sh          # ENV=dev: ставит infra, затем app
+deploy/helm/scripts/build-images.sh
+deploy/helm/scripts/build-images.sh --print-tags | xargs -I{} sh -c 'docker save {} | sudo k3s ctr images import -'
 ```
 
-`deploy.sh` подставит `--set-file secrets.values.jwtPrivateKey=...` и даст чарту
-создать Secret самому. Но тогда OAuth-креды будут заглушками `disabled`
-(в `values-dev.yaml`), и вход через Google/GitHub работать не будет.
+Сборка идёт из **корня репозитория** (context = `.`): `go.work` объединяет
+модули `api`, `infra`, `services/*`, и каждый Dockerfile копирует весь
+workspace. Первый билд долгий — тянет зависимости Go.
 
-### A5. Проверка
+### 2.7 Проверка
 
 ```bash
 kubectl -n ecommerce get pods                 # все ли Running
 kubectl -n ecommerce get jobs                 # *-migrate должны быть Complete
 kubectl -n ecommerce get svc,ingress
 kubectl -n ecommerce get events --sort-by=.lastTimestamp | tail -20
+
+curl -s  http://localhost/healthz             # через ingress-localhost
+curl -sk https://api.ecommerce.local/healthz  # самоподписанный сертификат
 ```
 
 Ожидаемо: `kafka-0`, `schema-registry`, 4 × `*-postgres-0`, `redis-0`,
@@ -291,9 +250,12 @@ kubectl -n ecommerce get events --sort-by=.lastTimestamp | tail -20
 
 ---
 
-## 3. Путь B: GitHub Container Registry (GHCR)
+## 3. Образы: сборка и публикация в GHCR
 
-### B1. Personal Access Token
+Сборка и публикация десяти образов (6 сервисов + 4 Job'а миграций) в GitHub
+Container Registry. Локальная установка с готовыми образами — в §2.
+
+### 3.1 Personal Access Token
 
 GitHub → **Settings → Developer settings → Personal access tokens → Tokens
 (classic)** → Generate new token. Нужны scopes:
@@ -304,10 +266,10 @@ GitHub → **Settings → Developer settings → Personal access tokens → Toke
 
 Сохраните токен: `export CR_PAT=ghp_...`
 
-> Для minikube, который будет тянуть образы, хватит `read:packages`. Если
-> запушите и тянете одним и тем же токеном — `write:packages` включает чтение.
+> `read:packages` нужен, только если пакеты приватные. Если запушите и тянете
+> одним и тем же токеном — `write:packages` включает чтение.
 
-### B2. Логин в GHCR
+### 3.2 Логин в GHCR
 
 ```bash
 export CR_PAT=ghp_ВАШ_ТОКЕН
@@ -317,7 +279,7 @@ echo "$CR_PAT" | docker login ghcr.io -u krokozabra213 --password-stdin
 Имя пользователя — ваш GitHub-логин. В GHCR **все** имена в нижнем регистре:
 `krokozabra213`, а не `Krokozabra213`.
 
-### B3. Сборка и push
+### 3.3 Сборка и push
 
 ```bash
 REGISTRY=ghcr.io PUSH=1 deploy/helm/scripts/build-images.sh
@@ -340,7 +302,7 @@ ghcr.io/krokozabra213/order-service-migrate:v1.0.0
 > чужой организации, и `docker push` вернул бы `denied`. Держите `PROJECT` в
 > `build-images.sh` и префикс в `values.yaml` синхронными.
 
-### B4. Приватные пакеты и pull-секрет
+### 3.4 Приватные пакеты и pull-секрет
 
 После первого push пакеты создаются **приватными**. Выбран именно этот вариант,
 поэтому нужен pull-секрет. Два варианта существуют, но ниже — только приватный
@@ -413,18 +375,6 @@ kubectl -n ecommerce get secret ghcr-pull -o jsonpath='{.data.\.dockerconfigjson
   | base64 -d | python3 -c 'import sys,json;print(list(json.load(sys.stdin)["auths"]))'
 ```
 
-> **Локальная ловушка:** если образ с этим тегом уже загружен в minikube через
-> `minikube image load`, kubelet при `imagePullPolicy: IfNotPresent` **не пойдёт
-> в реестр**, и секрет не проверится — будет казаться, что всё работает. Чтобы
-> протестировать именно приватный pull:
-> ```bash
-> kubectl -n ecommerce scale deploy/api-gateway --replicas=0
-> kubectl -n ecommerce wait --for=delete pod -l app.kubernetes.io/component=api-gateway
-> minikube image rm docker.io/krokozabra213/api-gateway:v1.0.0
-> kubectl -n ecommerce scale deploy/api-gateway --replicas=3
-> kubectl -n ecommerce describe pod -l app.kubernetes.io/component=api-gateway | grep -i 'Pulling\|Failed'
-> ```
-
 **Ротация токена:** создать новый PAT → снова запустить скрипт (он перезапишет
 секрет) → `kubectl -n ecommerce rollout restart deploy` (секрет читается
 kubelet'ом при создании пода, уже запущенные поды его не перечитывают).
@@ -435,14 +385,14 @@ kubelet'ом при создании пода, уже запущенные по�
 kubectl -n ecommerce delete secret ghcr-pull
 ```
 
-> Историческая справка: `imagePullSecrets` из `global` подставляются и в
-> Deployment'ы, и в Job'ы миграций. Без этого в приватном реестре падал весь
-> install, потому что Job'ы не могли забрать образ.
+> `imagePullSecrets` из `global` подставляются и в Deployment'ы, и в Job'ы
+> миграций: без этого в приватном реестре Job'ы не могут забрать образ и
+> install падает.
 
-### B5. Установка
+### 3.5 Установка
 
 Оверлей `values-ghcr.yaml` добавляет только `imageRegistry: ghcr.io` и
-`imagePullSecrets`:
+`imagePullSecrets` (для публичных пакетов его можно не подключать — §2.5):
 
 ```bash
 helm upgrade --install ecommerce deploy/helm/ecommerce-shop \
@@ -461,7 +411,7 @@ helm upgrade --install ecommerce deploy/helm/ecommerce-shop \
 kubectl -n ecommerce get pods -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\n"}{end}'
 ```
 
-### B6. Если нужно обновить образ
+### 3.6 Если нужно обновить образ
 
 ```bash
 REGISTRY=ghcr.io TAG=v1.2.3 PUSH=1 deploy/helm/scripts/build-images.sh
@@ -665,20 +615,16 @@ helm upgrade --install ecommerce deploy/helm/ecommerce-shop \
 
 ## 5. Доступ к сервисам снаружи
 
-Наружу опубликован только `api-gateway` (host `api.ecommerce.local`).
+Наружу опубликован только `api-gateway` (host `api.ecommerce.local`). k3s
+слушает 80/443 на самом хосте, поэтому достаточно добавить запись в `/etc/hosts`
+и обращаться по имени — проброс портов не нужен:
 
 ```bash
-echo "$(minikube ip) api.ecommerce.local" | sudo tee -a /etc/hosts
+echo "127.0.0.1 api.ecommerce.local" | sudo tee -a /etc/hosts
 
-curl -i http://api.ecommerce.local/healthz     # 200 от api-gateway
-curl -i http://api.ecommerce.local/readyz      # 200, когда зависимости доступны
-```
-
-Если `minikube ip` не отвечает (некоторые драйверы), поднимите туннель в
-отдельном терминале:
-
-```bash
-minikube tunnel
+curl -i https://api.ecommerce.local/healthz     # 200 от api-gateway (сертификат самоподписанный)
+curl -i https://api.ecommerce.local/readyz      # 200, когда зависимости доступны
+curl -i http://localhost/healthz                # http-вход через ingress-localhost
 ```
 
 Отладочный доступ к внутренним сервисам — без ingress:
@@ -697,23 +643,23 @@ kubectl -n ecommerce port-forward svc/grafana 3000:3000     # если observabi
 `/api/v1/categories`, `/api/v1/orders`, `/api/v1/inventory`.
 
 ```bash
-BASE=http://api.ecommerce.local
+BASE=https://api.ecommerce.local   # самоподписанный сертификат, поэтому curl -k
 
 # 1) регистрация (email + password >= 8 символов)
-curl -s -X POST "$BASE/api/v1/auth/register" \
+curl -sk -X POST "$BASE/api/v1/auth/register" \
   -H 'Content-Type: application/json' \
   -d '{"email":"test@example.com","password":"Passw0rd123"}'
 
 # 2) логин -> access_token
-TOKEN=$(curl -s -X POST "$BASE/api/v1/auth/login" \
+TOKEN=$(curl -sk -X POST "$BASE/api/v1/auth/login" \
   -H 'Content-Type: application/json' \
   -d '{"email":"test@example.com","password":"Passw0rd123"}' | sed -E 's/.*"access_token":"([^"]+)".*/\1/')
 
 # 3) защищённый эндпоинт
-curl -s "$BASE/api/v1/users/me" -H "Authorization: Bearer $TOKEN"
+curl -sk "$BASE/api/v1/users/me" -H "Authorization: Bearer $TOKEN"
 
 # 4) публичный каталог
-curl -s "$BASE/api/v1/products"
+curl -sk "$BASE/api/v1/products"
 ```
 
 **Про роли.** При регистрации пользователь получает `ROLE_USER`. Операции
@@ -751,29 +697,22 @@ helm upgrade ecommerce deploy/helm/ecommerce-shop -n ecommerce \
 Миграции при `helm upgrade` выполняются хуком **до** обновления подов — схема
 приезжает раньше кода.
 
-**Для minikube без реестра** — важный нюанс, проверено на практике.
-`minikube image load` **не подменяет** образ, который уже используется
-контейнерами: `minikube image rm` падает с
-`conflict: unable to remove repository reference ... container ... is using its
-referenced image`, и в узле остаётся старая версия под тем же тегом. Поэтому
-порядок такой:
+**Не переиспользуйте тег.** Соберите образы с новым тегом и передайте его
+релизу — тогда rollout произойдёт сам, без остановки подов:
 
 ```bash
-# 1) собрать на хосте (внутри minikube сборка падает из-за MTU, см. §A2)
-deploy/helm/scripts/build-images.sh
-
-# 2) освободить образ — остановить поды этого сервиса
-kubectl -n ecommerce scale deploy/api-gateway --replicas=0
-kubectl -n ecommerce wait --for=delete pod -l app.kubernetes.io/component=api-gateway --timeout=120s
-
-# 3) подменить образ в узле
-minikube image rm docker.io/krokozabra213/api-gateway:v1.0.0
-minikube image load krokozabra213/api-gateway:v1.0.0
-
-# 4) вернуть реплики
-kubectl -n ecommerce scale deploy/api-gateway --replicas=3
-kubectl -n ecommerce rollout status deploy/api-gateway --timeout=180s
+TAG=v1.0.1 deploy/helm/scripts/build-images.sh
+helm upgrade ecommerce deploy/helm/ecommerce-shop -n ecommerce \
+  -f deploy/helm/ecommerce-shop/values-dev.yaml \
+  -f deploy/helm/ecommerce-shop/values-local-tls.yaml \
+  -f deploy/helm/ecommerce-shop/values-ghcr.yaml \
+  --set secrets.create=false --set secrets.existingSecret=ecommerce-shop-secrets \
+  --set global.imageTag=v1.0.1 --wait
 ```
+
+Для локальной итерации без реестра импортируйте собранные образы в containerd
+k3s (§2.6). В GHCR вопроса подмены нет вообще: теги неизменяемы, и kubelet
+тянет новый образ по новому тегу.
 
 Убедиться, что под взял именно новый образ (пример для api-gateway — смотрим
 спеку, вшитую в образ):
@@ -782,20 +721,6 @@ kubectl -n ecommerce rollout status deploy/api-gateway --timeout=180s
 kubectl -n ecommerce exec deploy/api-gateway -c api-gateway -- \
   sh -c 'sed -n "/^servers:/,+2p" /app/api/openapi.yaml'
 ```
-
-> **Проще: не переиспользовать тег.** Соберите с новым тегом и укажите его
-> релизу — тогда ничего освобождать не нужно, rollout произойдёт сам:
-> ```bash
-> TAG=v1.0.1 deploy/helm/scripts/build-images.sh
-> minikube image load $(TAG=v1.0.1 deploy/helm/scripts/build-images.sh --print-tags)
-> helm upgrade ecommerce deploy/helm/ecommerce-shop -n ecommerce \
->   -f deploy/helm/ecommerce-shop/values-dev.yaml \
->   -f deploy/helm/ecommerce-shop/values-local-tls.yaml \
->   --set secrets.create=false --set secrets.existingSecret=ecommerce-shop-secrets \
->   --set global.imageTag=v1.0.1 --wait
-> ```
-> В реестре (GHCR, §3) этого вопроса нет вообще: теги неизменяемы, и kubelet
-> тянет новый образ по новому тегу.
 
 ---
 
@@ -817,7 +742,7 @@ Secret `ecommerce-shop-secrets` создан вручную (`existingSecret`) �
 kubectl -n ecommerce delete secret ecommerce-shop-secrets ghcr-pull
 ```
 
-Полная очистка: `minikube delete`.
+Полная очистка кластера: `sudo /usr/local/bin/k3s-uninstall.sh`.
 
 ---
 
@@ -827,8 +752,6 @@ kubectl -n ecommerce delete secret ecommerce-shop-secrets ghcr-pull
 |---|---|
 | `helm push` → `denied: requested access to the resource is denied` | токен без `write:packages` либо `PROJECT`/`image.repository` не совпадают с вашим GHCR-namespace |
 | поды в `ImagePullBackOff`, `ghcr.io/krokozabra213/...` | пакеты приватные, а pull-секрета нет или он неверный. Проверьте `kubectl -n ecommerce get secret ghcr-pull`, пересоздайте с `--docker-password="$CR_PAT"` |
-| сборка падает на `RUN go mod download`: `net/http: TLS handshake timeout` к `proxy.golang.org` | MTU/VPN: контейнер внутри minikube не пропускает TLS-рукопожатие, хотя Docker Hub тянется. Собирайте на хосте и грузите через `minikube image load` (§A2, Способ 2) |
-| `minikube image rm` → `conflict: unable to remove repository reference ... container ... is using its referenced image` | образ занят работающими подами. Пересобранный образ с тем же тегом не подменяется, пока поды живы: `kubectl scale deploy/<svc> --replicas=0`, затем `minikube image rm` + `minikube image load`, затем обратно `--replicas=3` (§7) |
 | Swagger UI: `Failed to fetch` / намёк на CORS на каждый запрос | в спеке `servers` указан абсолютный адрес (`http://localhost:4000`), а UI открыт по другому адресу. Лечится относительным `url: /` (§14) |
 | `config file not found: configs/dev.yaml` | ConfigMap не смонтирован или `global.environment` не совпадает с ключом ConfigMap'а |
 | `field "..." is required but the value is not provided` | не доехала env-переменная из Secret'а: сверьте имена по §4.3 (например `POSTGRES_DBNAME`, а не `POSTGRES_DB_NAME`) |
@@ -838,7 +761,7 @@ kubectl -n ecommerce delete secret ecommerce-shop-secrets ghcr-pull
 | `failed to load private key` (auth-service) | пустой/битый `jwt-private-key` в Secret'е либо не смонтирован том |
 | Job'ы миграций `Error`, `unable to authenticate` | топики/БД ещё не готовы либо пароль в Secret'е не совпадает с инфраструктурным |
 | `errored, unable to authenticate` у Kafka-консьюмеров | не выполнился Job `kafka-topics` либо неверные `dependencies.kafka.brokers` |
-| Kafka (или Schema Registry) в `CrashLoopBackOff`: exit code 1 за секунду, в логах только `Running in KRaft mode...` и `port is deprecated` | service links: Service с именем `kafka` подбрасывает в под `KAFKA_PORT=tcp://...`, а Confluent-образ считает любую `KAFKA_*` конфигом брокера. В pod-спеке должно быть `enableServiceLinks: false` (исправлено в чартах, см. README §11.1 п. 19) |
+| Kafka (или Schema Registry) в `CrashLoopBackOff`: exit code 1 за секунду, в логах только `Running in KRaft mode...` и `port is deprecated` | service links: Service с именем `kafka` подбрасывает в под `KAFKA_PORT=tcp://...`, а Confluent-образ считает любую `KAFKA_*` конфигом брокера. В pod-спеке должен быть `enableServiceLinks: false` |
 | schema-registry перезапускается | Kafka ещё не готова; смотрите `kubectl logs deploy/schema-registry -c wait-for-kafka` |
 | Postgres не стартует после смены `CLUSTER_ID`/`PGDATA` | PVC уже отформатирован: `kubectl delete pvc <name>` (данные пропадут) |
 | `cannot create transient scope: DBus error` | snap-версия `helm`/`kubectl` вне пользовательской сессии — поставьте обычные бинарники (§1) |
@@ -951,16 +874,10 @@ helm upgrade --install ecommerce deploy/helm/ecommerce-shop -n ecommerce \
   --set 'migrations.hook=pre-install\,pre-upgrade' \
   --wait --timeout 15m
 
-# 3) имя в /etc/hosts, чтобы работал браузер (curl умеет через -k + Host)
-echo "$(minikube ip) api.ecommerce.local" | sudo tee -a /etc/hosts
+# 3) имя в /etc/hosts — для k3s правильный адрес именно 127.0.0.1
+echo "127.0.0.1 api.ecommerce.local" | sudo tee -a /etc/hosts
 ```
 
-> **Частая ошибка:** записать в `/etc/hosts` не `minikube ip`, а `127.0.0.1`.
-> Тогда браузер пойдёт на localhost, где на 443 ничего не слушает, и вы
-> получите «сайт недоступен». Должно быть именно
-> `192.168.49.2 api.ecommerce.local` (адрес узла minikube). Проверить:
-> `grep ecommerce /etc/hosts`.
->
 > Для OAuth этот адрес всё равно не подойдёт — Google не принимает непубличные
 > TLD. Локальный OAuth делается через `localhost` (§12.6).
 
@@ -970,7 +887,7 @@ echo "$(minikube ip) api.ecommerce.local" | sudo tee -a /etc/hosts
 * `force-ssl-redirect` — http отдаёт `308` на https;
 * по 3 реплики каждому сервису + `PodDisruptionBudget(maxUnavailable: 1)`;
 * `defaults.spreadAcrossNodes: true` — реплики не собираются на одном узле
-  (`ScheduleAnyway`, поэтому одноузловой minikube не остаётся без подов).
+  (`ScheduleAnyway`, поэтому одноузловой k3s не остаётся без подов).
 
 ### 11.3 «Только TLS 1.3» — это настройка контроллера, а не Ingress'а
 
@@ -995,32 +912,30 @@ kubectl -n ingress-nginx patch configmap ingress-nginx-controller \
 ### 11.4 Как проверить, что TLS 1.3 работает и TLS 1.2 отключён
 
 ```bash
-IP=$(minikube ip)
-
 # HTTPS вообще
-curl -k -s -o /dev/null -w '%{http_code}\n' -H 'Host: api.ecommerce.local' https://$IP/healthz
+curl -k -s -o /dev/null -w '%{http_code}\n' https://api.ecommerce.local/healthz
 
 # http -> https
-curl -s -o /dev/null -D - -H 'Host: api.ecommerce.local' http://$IP/healthz | grep -i location
+curl -s -o /dev/null -D - http://api.ecommerce.local/healthz | grep -i location
 
 # только 1.3
-echo | openssl s_client -connect $IP:443 -servername api.ecommerce.local -tls1_3 2>/dev/null \
+echo | openssl s_client -connect 127.0.0.1:443 -servername api.ecommerce.local -tls1_3 2>/dev/null \
   | grep -E 'Protocol|Cipher'
 
 # TLS 1.2 должен НЕ договориться — nginx отвечает "tlsv1 alert protocol version"
 # и оставляет "Cipher is (NONE)". Проверяем именно это, а не текст handshake
 # failure: формулировка отличается между версиями OpenSSL.
-echo | openssl s_client -connect $IP:443 -servername api.ecommerce.local -tls1_2 2>&1 \
+echo | openssl s_client -connect 127.0.0.1:443 -servername api.ecommerce.local -tls1_2 2>&1 \
   | grep -qE 'alert protocol version|Cipher is \(NONE\)' \
   && echo "TLS 1.2 отклонён" || echo "TLS 1.2 ПРИНЯТ — проверьте ConfigMap"
 
 # то же через curl: с --tls-max 1.2 запрос должен упасть
 curl -k -s -o /dev/null -w '%{http_code}\n' --tlsv1.2 --tls-max 1.2 \
-  -H 'Host: api.ecommerce.local' https://$IP/healthz   # ожидаем 000
+  https://api.ecommerce.local/healthz   # ожидаем 000
 ```
 
-Проверено на minikube: `TLS 1.3 → TLS_AES_256_GCM_SHA384`, TLS 1.2 отклоняется,
-http отдаёт `308` на `https://api.ecommerce.local/...`.
+Проверено локально в k3s: `TLS 1.3 → TLS_AES_256_GCM_SHA384`, TLS 1.2
+отклоняется, http отдаёт `308` на `https://api.ecommerce.local/...`.
 
 ### 11.5 Три реплики: на что смотреть
 
@@ -1101,7 +1016,7 @@ kubectl -n ecommerce rollout restart deploy/auth-service
 
 `state` (защита от CSRF) хранится в **Redis**, а не в памяти пода: одна
 реплика создаёт `oauth:state:<state>` с TTL, а callback может прийти на любую
-другую — валидация пройдёт. Проверено: после запроса `/login` ключ виден в
+другую — валидация пройдёт. После запроса `/login` ключ виден в
 Redis, а в endpoints `auth-service` три пода.
 
 Будь это in-memory map, при `replicaCount: 3` OAuth падал бы через раз с
@@ -1182,18 +1097,11 @@ callback в консоли Google/GitHub — старый localhost-адрес �
 
 ## 13. Развёртывание на удалённом сервере (k3s)
 
-### 13.1 k3s без Traefik — иначе ingress-nginx не займёт 80/443
+### 13.1 k3s без Traefik
 
-В k3s по умолчанию стоит **Traefik**, а чарт рассчитывает на
-`ingressClassName: nginx`. Два ingress-контроллера на одних портах не уживутся.
-
-```bash
-# на сервере
-curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable traefik" sh -
-mkdir -p ~/.kube && sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
-sudo chown $(id -u):$(id -g) ~/.kube/config
-kubectl get nodes
-```
+Установка k3s одинакова на локальной машине и на сервере — команды в §2.2.
+Traefik отключён обязательно: он занял бы 80/443, а чарт рассчитывает на
+`ingressClassName: nginx`.
 
 Если k3s уже стоит с Traefik:
 
@@ -1204,19 +1112,9 @@ kubectl -n kube-system delete svc traefik
 
 ### 13.2 ingress-nginx
 
-```bash
-helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
-helm repo update
-helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
-  --namespace ingress-nginx --create-namespace \
-  -f deploy/cluster/ingress-nginx-values.yaml \
-  --wait --timeout 10m
-
-kubectl -n ingress-nginx get svc ingress-nginx-controller   # EXTERNAL-IP = IP узла (ServiceLB)
-```
-
-`EXTERNAL-IP` должен стать IP сервера (k3s даёт его через встроенный ServiceLB).
-Если там `<pending>` — Traefik всё ещё держит порты (§13.1).
+Ставится так же, как локально (§2.3). После установки `EXTERNAL-IP` у
+`ingress-nginx-controller` должен стать IP сервера (k3s даёт его через встроенный
+ServiceLB). Если там `<pending>` — Traefik всё ещё держит порты.
 
 ### 13.3 DNS и firewall
 
@@ -1240,20 +1138,12 @@ kubectl apply -f deploy/cluster/cluster-issuer-letsencrypt.yaml
 kubectl get clusterissuer
 ```
 
-### 13.5 Образы: GHCR и pull-секрет
+### 13.5 Образы: GHCR
 
-```bash
-# на машине разработчика
-REGISTRY=ghcr.io TAG=v1.0.0 PUSH=1 deploy/helm/scripts/build-images.sh
-
-# на сервере
-kubectl create namespace ecommerce
-kubectl -n ecommerce create secret docker-registry ghcr-pull \
-  --docker-server=ghcr.io --docker-username=krokozabra213 \
-  --docker-password="$CR_PAT"
-```
-
-Пакеты должны быть либо публичными, либо токен обязан иметь `read:packages`.
+Образы в GHCR публичные и тянутся анонимно — pull-секрет на сервере не нужен.
+Сборка и push — §3.3. Если пакеты всё-таки приватные, секрет создаётся
+скриптом: `CR_PAT=... deploy/helm/scripts/create-ghcr-pull-secret.sh`
+(подробно §3.4).
 
 ### 13.6 Секреты приложения и инфраструктура
 

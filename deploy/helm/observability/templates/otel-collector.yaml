@@ -106,8 +106,7 @@ spec:
             - name: config
               mountPath: /etc/otel-collector
               readOnly: true
-            # readOnlyRootFilesystem: true, поэтому даём записываемый /tmp
-            # (нужен, если добавят file-экспортёр/очередь на диск).
+            # Записываемый /tmp при readOnlyRootFilesystem: true.
             - name: tmp
               mountPath: /tmp
       volumes:

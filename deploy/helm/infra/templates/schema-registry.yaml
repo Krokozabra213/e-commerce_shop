@@ -50,8 +50,7 @@ spec:
     spec:
       {{- include "infra.imagePullSecrets" $ | nindent 6 }}
       automountServiceAccountToken: false
-      # Service links ломают и Schema Registry: SCHEMA_REGISTRY_PORT=tcp://...
-      # становится конфигом port=... (см. подробный комментарий в kafka.yaml).
+      # Service links подбрасывают SCHEMA_REGISTRY_PORT (см. kafka.yaml).
       enableServiceLinks: false
       terminationGracePeriodSeconds: 30
       securityContext:
@@ -79,7 +78,7 @@ spec:
               value: {{ $sr.compatibilityLevel | quote }}
             - name: SCHEMA_REGISTRY_LOG4J_ROOT_LOGLEVEL
               value: {{ $sr.logLevel | quote }}
-            # Один инстанс -> встроенный топик схем должен иметь RF=1 и compact.
+            # Один инстанс: встроенный топик схем — RF=1, compact.
             - name: SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR
               value: "1"
           startupProbe:

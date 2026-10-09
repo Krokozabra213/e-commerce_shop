@@ -28,7 +28,7 @@ Go-сервисы ──OTLP(4317/4318)──▶ otel-collector ──▶ tempo 
 ## 1. Установка
 
 ```bash
-# dev (kind/minikube, без PVC, анонимный Grafana)
+# dev (без PVC, анонимный Grafana)
 /snap/helm/545/helm upgrade --install obs deploy/helm/observability \
   -n observability --create-namespace \
   -f deploy/helm/observability/values-dev.yaml

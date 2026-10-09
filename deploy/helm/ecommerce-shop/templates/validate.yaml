@@ -1,6 +1,5 @@
 {{- /*
-Проверки конфигурации. Файл ничего не рендерит — он только валидирует values
-и падает с понятным сообщением вместо невнятной ошибки в кластере.
+Проверки конфигурации; файл ничего не рендерит, только валидирует values.
 */ -}}
 {{- $root := . }}
 {{- if include "ecommerce-shop.anyServiceEnabled" $root }}
@@ -10,7 +9,7 @@
 {{- fail "\n\nsecrets.create=false, но secrets.existingSecret не задан.\nЧарт не создаст Secret, а поды будут ссылаться на несуществующий <release>-secrets\n(в кластере это проявится как CreateContainerConfigError).\n\nЗадайте одно из:\n  --set secrets.create=true --set-file secrets.values.jwtPrivateKey=services/auth-service/certs/jwt-private.pem\n  --set secrets.create=false --set secrets.existingSecret=<имя существующего Secret>\n" }}
 {{- end }}
 
-{{- /* Не даём случайно уехать в prod с паролями из values. */ -}}
+{{- /* Запрет secrets.create=true в prod без явного разрешения. */ -}}
 {{- $env := lower ($root.Values.global.environment | toString) }}
 {{- if and $root.Values.secrets.create (or (eq $env "prod") (eq $env "production")) (not $root.Values.secrets.allowCreateInProduction) }}
 {{- fail "\n\nglobal.environment=prod, но secrets.create=true: пароли и приватный ключ JWT\nбудут взяты из values и попадут в Helm release/ConfigMap.\n\nДля prod:\n  --set secrets.create=false --set secrets.existingSecret=<имя Secret>\n\nЕсли это осознанное решение (например, изолированный staging с именем prod),\nразрешите явно:\n  --set secrets.allowCreateInProduction=true\n" }}

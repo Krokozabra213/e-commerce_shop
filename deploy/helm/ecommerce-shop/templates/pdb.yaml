@@ -1,9 +1,5 @@
 {{- /*
 PodDisruptionBudget.
-
-ВНИМАНИЕ: minAvailable, равный числу реплик, полностью блокирует
-добровольное вытеснение (drain узла). Для replicaCount=1 имеет смысл
-только maxUnavailable: 0 при наличии запаса, либо PDB не нужен.
 */ -}}
 {{- $root := . }}
 {{- range $name, $svc := $root.Values.services }}
@@ -20,8 +16,6 @@ spec:
   {{- if hasKey $pdb "maxUnavailable" }}
   maxUnavailable: {{ $pdb.maxUnavailable }}
   {{- else if hasKey $pdb "minAvailable" }}
-  {{- /* hasKey, а не default: minAvailable=0 — валидное значение,
-         а sprig `default` считает 0 пустым и молча подменяет на 1. */}}
   minAvailable: {{ $pdb.minAvailable }}
   {{- else }}
   minAvailable: 1

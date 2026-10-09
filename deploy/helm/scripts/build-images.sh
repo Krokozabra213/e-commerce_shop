@@ -2,25 +2,12 @@
 # =============================================================================
 # build-images.sh — сборка образов всех сервисов и их миграций
 # =============================================================================
-# Собирает:
-#   <REGISTRY>/<PROJECT>/<service>:<TAG>            — сервис
-#   <REGISTRY>/<PROJECT>/<service>-migrate:<TAG>    — goose-миграции
-#
-# Эти имена должны совпадать с image.repository в
-# deploy/helm/ecommerce-shop/values.yaml.
-#
-# Использование:
-#   ./build-images.sh                         # только сборка
-#   PUSH=1 ./build-images.sh                  # сборка + push
-#   REGISTRY=ghcr.io PROJECT=krokozabra213 TAG=1.2.3 PUSH=1 ./build-images.sh
-#   ./build-images.sh --print-tags            # напечатать имена образов (для kind)
+# Собирает <REGISTRY>/<PROJECT>/<service>:<TAG> и <service>-migrate:<TAG>.
 #
 # Переменные:
-#   REGISTRY  хост реестра (без пути). Пусто = локальные образы без реестра.
-#   PROJECT   путь/проект в реестре. По умолчанию "krokozabra213" (владелец GHCR).
-#             Должен совпадать с префиксом image.repository в
-#             deploy/helm/ecommerce-shop/values.yaml.
-#   TAG       тег. По умолчанию — appVersion из charts/ecommerce-shop/Chart.yaml.
+#   REGISTRY  хост реестра (без пути); пусто = локальные образы без реестра.
+#   PROJECT   проект/путь в реестре (krokozabra213), совпадает с image.repository.
+#   TAG       тег; по умолчанию — appVersion чарта приложения.
 #   PUSH      1 = docker push после сборки.
 #   PLATFORM  например linux/amd64.
 # =============================================================================
@@ -32,9 +19,7 @@ PROJECT="${PROJECT:-krokozabra213}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 APP_CHART="${REPO_ROOT}/deploy/helm/ecommerce-shop"
 
-# Тег по умолчанию = appVersion чарта приложения. Так сборка и деплой не могут
-# разъехаться: чарт ищет образы ровно с этим тегом, если image.tag/global.imageTag
-# не заданы явно (см. deploy/helm/ecommerce-shop/Chart.yaml).
+# Тег по умолчанию = appVersion чарта приложения (функция chart_app_version).
 chart_app_version() {
   local v
   v="$(sed -nE 's/^appVersion:[[:space:]]*"?([^"[:space:]]+)"?[[:space:]]*$/\1/p' \
@@ -74,9 +59,7 @@ image_name() {
 
 all_tags() {
   local svc
-  # Каждое имя — отдельной строкой: вывод используется как список аргументов
-  # (`minikube image load $(build-images.sh --print-tags)`). Без перевода строки
-  # все имена склеились бы в один аргумент.
+  # Каждое имя — отдельной строкой: вывод используется как список аргументов.
   for svc in "${SERVICES[@]}"; do image_name "${svc}"; echo; done
   for svc in "${MIGRATION_SERVICES[@]}"; do image_name "${svc}-migrate"; echo; done
 }

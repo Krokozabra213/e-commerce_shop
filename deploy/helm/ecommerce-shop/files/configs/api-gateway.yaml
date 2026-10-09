@@ -1,13 +1,7 @@
 # =============================================================================
 # api-gateway — конфигурация
 # =============================================================================
-# Рендерится Helm'ом в ConfigMap и монтируется как /app/configs/<env>.yaml.
-# Секреты (APP_SECRET, REDIS_PASSWORD) НЕ здесь — они приходят переменными
-# окружения из Secret'а и имеют приоритет над этим файлом (cleanenv: YAML,
-# затем env).
-#
-# ВНИМАНИЕ: cleanenv читает env-переменные ТОЛЬКО для полей, у которых в
-# структуре есть тег `env`, и имя переменной = env-prefix + env-тег.
+# Рендерится Helm'ом в ConfigMap (/app/configs/<env>.yaml); секреты (APP_SECRET, REDIS_PASSWORD) приходят из Secret'а и приоритетнее этого файла.
 # =============================================================================
 
 app:
@@ -24,8 +18,7 @@ http:
   port: {{ .svc.http.port | quote }}
   readTimeout: 10s
   writeTimeout: 10s
-  # ВНИМАНИЕ: имена исторические, значения — в МЕГАБАЙТАХ
-  # (fiber.ReadBufferSize = maxHeaderBytes * 1MiB, BodyLimit = bodyLimitBytes * 1MiB).
+  # Значения — в мегабайтах (fiber: maxHeaderBytes и bodyLimitBytes умножаются на 1MiB).
   maxHeaderBytes: 1
   bodyLimitBytes: 4
   allowedOrigins:
@@ -37,8 +30,6 @@ slog:
   add_source: {{ .Values.logging.addSource }}
 
 # gRPC-клиент к inventory-service.
-# ВАЖНО: в services/api-gateway/configs/dev.yaml здесь ОШИБКА — указан
-# "auth-service:44100", хотя gRPC-сервер есть только у inventory-service.
 grpc_inventory_client:
   addr: "{{ (index .Values.dependencies.services "inventory-service").host }}:{{ (index .Values.dependencies.services "inventory-service").grpcPort }}"
 
@@ -69,8 +60,7 @@ http_user_client:
 
 jwt:
   issuer: "auth-service"
-  # publicKeyPath / jwksEndpoint не задаются: ключ api-gateway получает
-  # у auth-service по HTTP (GetPublicKey) при старте.
+  # publicKeyPath / jwksEndpoint не задаются: ключ получается у auth-service по HTTP при старте.
 
 rate_limiter:
   enabled: {{ .Values.rateLimiter.enabled }}
