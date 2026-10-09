@@ -1,0 +1,81 @@
+# =============================================================================
+# ecommerce-shop — оверлей «prod, все зависимости внутри кластера»
+# =============================================================================
+# Накладывается ПОВЕРХ values-server.yaml. Базовый профиль задаёт:
+#   * global.environment: prod  → сервисы грузят configs/prod.yaml, JSON-логи;
+#   * короткие внутрикластерные DNS-имена зависимостей (auth-postgres, redis,
+#     mongodb, kafka, schema-registry) — т.е. БД живут в этом же кластере;
+#   * TLS через cert-manager (ClusterIssuer letsencrypt-prod);
+#   * 3 реплики каждого сервиса + PDB.
+# Этот оверлей добавляет «продность»: HPA, observability, NetworkPolicy,
+# ранний запуск миграций.
+#
+#   helm upgrade --install ecommerce deploy/helm/ecommerce-shop -n ecommerce \
+#     -f deploy/helm/ecommerce-shop/values-server.yaml \
+#     -f deploy/helm/ecommerce-shop/values-prod-onprem.yaml \
+#     --wait --timeout 20m
+#
+# Чем отличается от values-prod.yaml: там dependencies.* указывают на
+# managed-БД (RDS/Atlas/MSK) и infra-чарт не ставится. Здесь infra-чарт стоит в
+# этом же namespace, поэтому адреса зависимостей НЕ переопределяются.
+# =============================================================================
+
+logging:
+  level: "info"
+  format: "json"
+  addSource: false
+
+# Сервисы пушат OTLP в otel-collector (ставится чартом observability,
+# см. DEPLOY-RUNBOOK.md §13.7). Без установленного коллектора старт не ломается
+# (grpc.NewClient ленивый), но трейсы/логи/метрики не будут экспортироваться.
+observability:
+  enabled: true
+  otel:
+    endpoint: "otel-collector:4317"
+    insecure: true
+  logs: true
+  metrics: true
+  traces: true
+  tracesSampleRate: 0.1
+  logToStdout: true
+  sampleLogs: false
+
+# Namespace-wide default-deny-ingress + правила. Эффект есть только на CNI с
+# поддержкой NetworkPolicy (Calico/Cilium/Antrea). На штатном flannel в k3s
+# правила не применяются, но и не ломают кластер (см. DEPLOY-RUNBOOK.md §13.10).
+networkPolicy:
+  enabled: true
+  defaultDenyIngress: true
+
+migrations:
+  enabled: true
+  # Secret приложения создан заранее (§4.7), поэтому миграции можно применить
+  # ДО выката подов — строгий порядок и на первой установке.
+  hook: "pre-install,pre-upgrade"
+  backoffLimit: 2
+  activeDeadlineSeconds: 1800
+
+services:
+
+  # HPA требует metrics-server. В k3s он встроен; в managed-кластерах может
+  # отсутствовать — тогда оставьте autoscaling.enabled=false.
+  api-gateway:
+    autoscaling:
+      enabled: true
+      minReplicas: 3
+      maxReplicas: 20
+      targetCPUUtilizationPercentage: 65
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+            - type: Percent
+              value: 50
+              periodSeconds: 60
+
+  product-service:
+    autoscaling:
+      enabled: true
+      minReplicas: 3
+      maxReplicas: 15
+      targetCPUUtilizationPercentage: 70

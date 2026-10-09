@@ -90,3 +90,39 @@ dev-ps: ## Статус контейнеров
 .PHONY: dev-logs
 dev-logs: ## Логи сервиса: make dev-logs SVC=auth-service
 	docker compose logs -f $(SVC)
+
+# -----------------------------------------------------------------------------
+# Локальный кластер k3d + helm-чарты (dev-режим одной командой)
+# -----------------------------------------------------------------------------
+
+.PHONY: k3d-up
+k3d-up: ## Поднять кластер k3d и dev-стек (образы из GHCR)
+	./scripts/k3d.sh up
+
+.PHONY: k3d-up-local
+k3d-up-local: ## То же, но образы собираются из текущего кода
+	K3D_LOCAL=1 ./scripts/k3d.sh up
+
+.PHONY: k3d-load
+k3d-load: ## Пересобрать образы, импортировать в k3d и перезапустить поды
+	./scripts/k3d.sh load
+
+.PHONY: k3d-status
+k3d-status: ## Статус кластера k3d и подов
+	./scripts/k3d.sh status
+
+.PHONY: k3d-logs
+k3d-logs: ## Логи сервиса в k3d: make k3d-logs SVC=auth-service
+	./scripts/k3d.sh logs $(SVC)
+
+.PHONY: k3d-down
+k3d-down: ## Удалить кластер k3d
+	./scripts/k3d.sh down
+
+.PHONY: k3d-reset
+k3d-reset: ## Пересоздать кластер k3d с нуля
+	./scripts/k3d.sh reset
+
+.PHONY: k3d-install
+k3d-install: ## Установить бинарь k3d в ~/.local/bin
+	./scripts/k3d.sh install-k3d

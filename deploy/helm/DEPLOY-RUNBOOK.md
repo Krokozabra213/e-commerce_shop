@@ -1145,42 +1145,102 @@ kubectl get clusterissuer
 скриптом: `CR_PAT=... deploy/helm/scripts/create-ghcr-pull-secret.sh`
 (подробно §3.4).
 
-### 13.6 Секреты приложения и инфраструктура
+### 13.6 Секреты, инфраструктура и выбор «managed vs в кластере»
+
+Есть два прод-варианта. Они отличаются **только тем, где живут БД**, а не
+«режимом» приложения — `global.environment` в обоих `prod`:
+
+| Вариант | Где БД | Чарт `infra` | Профиль приложения |
+|---|---|---|---|
+| **Всё в кластере** (БД подами в namespace `ecommerce`) | Postgres ×4, Redis, MongoDB, Kafka, Schema Registry | **ставится** | `values-server.yaml` + `values-prod-onprem.yaml` |
+| Managed (RDS/Atlas/MSK) | внешние сервисы | **не ставится** | `values-prod.yaml` (там реальные адреса `dependencies.*`) |
+
+Важно не путаться: в `values-prod.yaml` «внешними» выглядят только адреса
+`dependencies.*` (`*.internal.example.com`). Сам чарт `infra` **всегда поднимает
+БД внутри кластера**; `values-prod.yaml` нужен лишь тогда, когда вместо него
+подключены managed-сервисы.
+
+Секреты приложения создаются заранее (чарт **специально падает** при
+`environment=prod` и `secrets.create=true` — §4.7; ключи — §4.3):
 
 ```bash
 # REDIRECT_BASE — уже на боевой домен, чтобы OAuth не пришлось перенастраивать
 REDIRECT_BASE=https://api.вашдомен.ru deploy/helm/scripts/create-app-secret.sh
+```
 
-# инфраструктура (если БД не managed)
+Секреты инфраструктуры — те же имена, что ждёт `infra/values-prod.yaml` в
+`existingSecret`, и пароли должны **совпадать** с `ecommerce-shop-secrets`
+(§4.7): `postgresql-credentials` (ключи `auth-password`, `inventory-password`,
+`order-password`, `user-password`), `redis-credentials` (`password`),
+`mongodb-credentials` (`root-password`).
+
+Установка инфраструктуры (БД внутри кластера):
+
+```bash
 helm upgrade --install ecommerce-infra deploy/helm/infra \
-  --namespace ecommerce -f deploy/helm/infra/values-prod.yaml \
+  --namespace ecommerce --create-namespace \
+  -f deploy/helm/infra/values-prod.yaml \
   --wait --timeout 20m
 ```
 
-Если БД managed (RDS/Atlas/MSK) — infra-чарт не ставится, а адреса
-прописываются в `dependencies.*` (см. `values-prod.yaml`).
+Размеры PVC в `values-prod.yaml` рассчитаны на настоящий сервер (см. §13.11) —
+на маленьком диске добавьте оверлей с размерами.
 
-### 13.7 Приложение
+### 13.7 Observability (otel-collector, Tempo, Loki, Prometheus, Grafana)
+
+Чарт ставится в тот же namespace `ecommerce`, чтобы приложение видело
+`otel-collector:4317` по короткому имени.
+
+```bash
+# Grafana-пароль из заранее созданного Secret (values-prod.yaml так ждёт)
+kubectl -n ecommerce create secret generic grafana-admin \
+  --from-literal=admin-password="$(openssl rand -hex 16)"
+
+# домен Grafana: заменить в values-prod.yaml (grafana.ingress.host + tls)
+helm upgrade --install observability deploy/helm/observability \
+  --namespace ecommerce \
+  -f deploy/helm/observability/values-prod.yaml \
+  --wait --timeout 20m
+```
+
+Сервисы **не отдают `/metrics`** — они пушат OTLP в otel-collector, а Prometheus
+скрейпит `otel-collector:8889` (`deploy/helm/README.md` §9). Поэтому
+`observability.enabled=true` в профиле приложения обязателен, иначе телеметрия
+не пойдёт.
+
+### 13.8 Приложение
 
 ```bash
 # домен: заменить в values-server.yaml в ДВУХ местах
 #   ingress.tls[0].hosts[]  и  services.api-gateway.ingress.host
 helm upgrade --install ecommerce deploy/helm/ecommerce-shop -n ecommerce \
   -f deploy/helm/ecommerce-shop/values-server.yaml \
+  -f deploy/helm/ecommerce-shop/values-prod-onprem.yaml \
   --wait --timeout 20m
 
 kubectl -n ecommerce get pods,ingress
 kubectl -n ecommerce get certificate           # cert-manager выпустил TLS
 ```
 
-`values-server.yaml` — профиль «всё на одной машине»: инфра в кластере
-(короткие DNS-имена), образы из `ghcr.io/krokozabra213`, 3 реплики каждого
-сервиса, HTTPS через cert-manager. Если БД внешние — используйте
-`values-prod.yaml` и заполните в нём реальные адреса.
+Профили:
 
-### 13.8 Проверка после развёртывания
+* `values-server.yaml` — `environment: prod`, зависимости по коротким
+  внутрикластерным DNS-именам, 3 реплики каждого сервиса + PDB, HTTPS через
+  cert-manager, образы из `ghcr.io/krokozabra213`;
+* `values-prod-onprem.yaml` (оверлей поверх `values-server.yaml`) — HPA для
+  `api-gateway`/`product-service`, `observability.enabled=true`,
+  `networkPolicy.enabled=true`, миграции `pre-install,pre-upgrade`. HPA требует
+  metrics-server (в k3s встроен); NetworkPolicy — CNI с поддержкой policy
+  (§13.10).
+
+Если БД managed — вместо этих двух файлов берите `values-prod.yaml` и заполните
+в нём реальные адреса `dependencies.*`.
+
+### 13.9 Проверка после развёртывания
 
 ```bash
+kubectl -n ecommerce get pods,jobs,hpa,ingress
+
 curl -sI http://api.вашдомен.ru/healthz            # 308 на https
 curl -s  https://api.вашдомен.ru/healthz           # 200
 curl -s  https://api.вашдомен.ru/readyz
@@ -1190,9 +1250,23 @@ echo | openssl s_client -connect api.вашдомен.ru:443 -servername api.в�
   | grep -qE 'alert protocol version|Cipher is \(NONE\)' && echo "TLS 1.2 отклонён"
 
 kubectl -n ecommerce get deploy                  # 3/3 у всех шести
+kubectl -n ecommerce get certificate             # cert-manager: Ready=True
+
+# HPA (после установки metrics-server какое-то время может быть <unknown>)
+kubectl -n ecommerce get hpa
+kubectl top pods -n ecommerce | head
+
+# миграции отработали
+kubectl -n ecommerce get jobs | grep migrate     # Completed
+
+# observability
+kubectl -n ecommerce get pods | grep -E "otel|tempo|loki|prometheus|grafana"
 ```
 
-### 13.9 Чего на k3s ожидать не стоит
+Сквозной smoke-сценарий (register → login → protected endpoint) — §6;
+OAuth и TLS-1.3 — §11–§12.
+
+### 13.10 Чего на k3s ожидать не стоит
 
 * **NetworkPolicy не работает** на стандартном k3s (CNI flannel их не
   поддерживает). `networkPolicy.enabled: true` не даст эффекта, пока не
@@ -1203,6 +1277,50 @@ kubectl -n ecommerce get deploy                  # 3/3 у всех шести
   настроенной репликации не дают отказоустойчивости, а Kafka для 3 брокеров
   требует отдельной настройки кворума контроллеров. Для настоящего HA нужны
   операторы (CloudNativePG, Strimzi) или managed-сервисы.
+
+### 13.11 Размеры PVC и маленькие диски
+
+Прод-профили рассчитаны на настоящий сервер и суммарно требуют очень много
+места:
+
+| Чарт | PVC | Итого |
+|---|---|---|
+| `infra/values-prod.yaml` | PostgreSQL 20Gi ×4, MongoDB 30Gi, Kafka 50Gi, Redis 5Gi | **165 GiB** |
+| `observability/values-prod.yaml` | Prometheus 100Gi, Tempo 50Gi, Loki 50Gi, Grafana 10Gi | **210 GiB** |
+
+Итого около **375 GiB**. На одноузловой машине с меньшим диском уменьшите
+размеры оверлеем — пример ниже укладывается в ~21 GiB (при этом сам prod-режим
+сохраняется полностью, уменьшаются только тома):
+
+```bash
+helm upgrade --install ecommerce-infra deploy/helm/infra -n ecommerce \
+  -f deploy/helm/infra/values-prod.yaml \
+  --set postgresql.persistence.size=2Gi \
+  --set mongodb.persistence.size=2Gi \
+  --set kafka.persistence.size=4Gi \
+  --set redis.persistence.size=1Gi \
+  --wait --timeout 20m
+
+helm upgrade --install observability deploy/helm/observability -n ecommerce \
+  -f deploy/helm/observability/values-prod.yaml \
+  --set prometheus.persistence.size=2Gi \
+  --set tempo.persistence.size=2Gi \
+  --set loki.persistence.size=2Gi \
+  --set grafana.persistence.enabled=false \
+  --wait --timeout 20m
+```
+
+Нюансы:
+
+* `postgresql.persistence.size` — **на каждый** из четырёх инстансов
+  (`auth-postgres`, `inventory-postgres`, `order-postgres`, `user-postgres`).
+* StorageClass по умолчанию в k3s — `local-path`: данные лежат на локальном
+  диске узла, `ReclaimPolicy: Delete`. Для настоящего прода берите StorageClass
+  с репликацией/бэкапами и прод-размеры.
+* **Уменьшить PVC после создания нельзя** (расширять — можно, если
+  `allowVolumeExpansion`): планируйте размеры до установки.
+* Возня с диском не влияет на образ и режим приложения: `global.environment`
+  остаётся `prod`, HPA/PDB/observability работают как в проде.
 
 ---
 
