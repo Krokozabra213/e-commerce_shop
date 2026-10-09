@@ -6,7 +6,7 @@ description: |
   Ingress, HPA, PodDisruptionBudget и NetworkPolicy.
 type: application
 version: 0.2.0
-appVersion: "v1.1.2"
+appVersion: "v1.1.3"
 keywords:
   - ecommerce
   - microservices
