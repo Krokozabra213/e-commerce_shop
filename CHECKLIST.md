@@ -33,7 +33,7 @@
 
 ```bash
 # 0) версии как в CI
-go version          # 1.26.6
+go version          # 1.26.9
 docker version      # нужен для integration-тестов
 
 # 1) линт и форматирование (то же, что job lint)
