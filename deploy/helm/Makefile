@@ -79,6 +79,17 @@ validate: lint template ## lint + render + простая проверка YAML 
 validate-prod: ## То же, но рендер/линт на values-prod.yaml
 	$(MAKE) ENV=prod lint template
 
+.PHONY: validate-prod-onprem
+validate-prod-onprem: ## lint/render prod с БД в кластере (values-server + values-prod-onprem)
+	@mkdir -p $(BUILD_DIR)
+	$(HELM) lint $(CHART_APP) \
+		-f $(CHART_APP)/values-server.yaml \
+		-f $(CHART_APP)/values-prod-onprem.yaml $(JWT_DUMMY)
+	$(HELM) template $(RELEASE_APP) $(CHART_APP) \
+		-f $(CHART_APP)/values-server.yaml \
+		-f $(CHART_APP)/values-prod-onprem.yaml $(JWT_DUMMY) > $(BUILD_DIR)/app-prod-onprem.yaml
+	@echo "OK app-prod-onprem"
+
 .PHONY: kubeconform
 kubeconform: template ## Валидация схем (если установлен kubeconform)
 	@command -v kubeconform >/dev/null || { echo "kubeconform не установлен"; exit 1; }

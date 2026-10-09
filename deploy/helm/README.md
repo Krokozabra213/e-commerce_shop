@@ -31,6 +31,10 @@ deploy/helm/
 
 ## 1. Быстрый старт (k3s)
 
+> Нужен одноразовый кластер под рукой (без установки k3s)? Из корня
+> репозитория: `make k3d-up` — поднимет k3d + ingress-nginx + dev-стек одной
+> командой. Подробности — в [корневом README](../../README.md#локальный-запуск-в-kubernetes-k3d-одной-командой).
+
 Нужны `docker`, `kubectl`, `helm` и k3s. Из корня репозитория:
 
 ```bash
@@ -107,6 +111,37 @@ make logs SVC=api-gateway
 `make install` ставит всё с профилем `values-dev.yaml` и образами из узла,
 поэтому ему должен предшествовать `make k3s-load`. Для образов из GHCR
 используйте команды из шага 5 выше.
+
+### 1.2 Prod-режим (все БД в кластере)
+
+§1 выше — локальный **dev**-профиль. Для прода, где все БД живут подами в этом
+же кластере, профиль приложения другой: `environment: prod`, 3 реплики, PDB,
+HPA, observability, TLS через cert-manager.
+
+```bash
+# 0) секреты: при environment=prod чарт намеренно запрещает secrets.create=true
+REDIRECT_BASE=https://api.вашдомен.ru deploy/helm/scripts/create-app-secret.sh
+
+# 1) инфраструктура — Postgres ×4, Redis, MongoDB, Kafka, Schema Registry в кластере
+helm upgrade --install ecommerce-infra deploy/helm/infra -n ecommerce \
+  --create-namespace -f deploy/helm/infra/values-prod.yaml --wait --timeout 20m
+
+# 2) observability (нужен, т.к. приложение шлёт OTLP в otel-collector)
+helm upgrade --install observability deploy/helm/observability -n ecommerce \
+  -f deploy/helm/observability/values-prod.yaml --wait --timeout 20m
+
+# 3) приложение: prod + БД в кластере
+helm upgrade --install ecommerce deploy/helm/ecommerce-shop -n ecommerce \
+  -f deploy/helm/ecommerce-shop/values-server.yaml \
+  -f deploy/helm/ecommerce-shop/values-prod-onprem.yaml \
+  --wait --timeout 20m
+```
+
+Полный чек-лист (cert-manager, DNS/firewall, порядок релизов, проверка TLS 1.3,
+HPA и миграций) — [DEPLOY-RUNBOOK.md §13](DEPLOY-RUNBOOK.md#13-развёртывание-на-удалённом-сервере-k3s).
+Прод-профили требуют ~375 GiB под PVC; на маленьком диске уменьшите размеры
+(§13.11). Если БД managed — вместо `values-server` + `values-prod-onprem`
+берётся `values-prod.yaml`.
 
 ---
 
@@ -263,11 +298,19 @@ StatefulSet и для per-pod DNS (`<pod>.<name>-headless`); обычный Clus
 | `values-dev.yaml` | локальная разработка: http, по 1 реплике, debug-логи |
 | `values-ghcr.yaml` | оверлей: образы из GHCR (стеком к dev) |
 | `values-local-tls.yaml` | локально как в проде: HTTPS (самоподписанный) + 3 реплики + PDB |
-| `values-server.yaml` | один сервер (k3s): HTTPS через cert-manager + 3 реплики + инфра в кластере |
-| `values-prod.yaml` | prod: managed-БД, HPA, cert-manager, NetworkPolicy |
+| `values-server.yaml` | `environment: prod`, БД в кластере (короткие DNS-имена): HTTPS через cert-manager + 3 реплики + PDB |
+| `values-prod-onprem.yaml` | оверлей поверх `values-server.yaml`: HPA + observability + NetworkPolicy + ранние миграции |
+| `values-prod.yaml` | prod с **managed-БД** (внешние адреса в `dependencies.*`), HPA, cert-manager, NetworkPolicy |
 
 Профили накладываются слева направо (`-f base -f overlay`), подробности и
 команды — в [DEPLOY-RUNBOOK.md](DEPLOY-RUNBOOK.md).
+
+Ключевое различие для prod: **«managed vs в кластере» — это только выбор
+профиля приложения**, а не режим кластера. `infra`-чарт всегда поднимает
+PostgreSQL/Redis/MongoDB/Kafka **внутри** кластера; `values-prod.yaml` нужен
+лишь если вместо него подключены внешние managed-сервисы. Прод со всеми БД в
+кластере — это `values-server.yaml` + `values-prod-onprem.yaml`
+(пошагово: [DEPLOY-RUNBOOK.md §13](DEPLOY-RUNBOOK.md#13-развёртывание-на-удалённом-сервере-k3s)).
 
 ### `ecommerce-shop` — ключевые секции
 
@@ -530,7 +573,13 @@ NetworkPolicy (Calico/Cilium/Antrea); если в кластере такого 
 * наблюдаемость: OTLP -> Tempo/Loki, скрейп otel-collector, дашборды Grafana
   (в dev-профиле observability выключена);
 * NetworkPolicy в реальном CNI (в кластере по умолчанию CNI без поддержки policy);
-* HA-профили (`replicaCount > 1`, `autoscaling.enabled`) и prod с внешними БД.
+* HA-профили (`replicaCount > 1`, `autoscaling.enabled`) и prod с внешними
+  БД (managed): рендерятся и линтятся, но end-to-end на сервере не прогонялись;
+* prod с БД в кластере в полном составе (`values-server.yaml` +
+  `values-prod-onprem.yaml`: HPA + observability) — описан в
+  [DEPLOY-RUNBOOK.md §13](DEPLOY-RUNBOOK.md#13-развёртывание-на-удалённом-сервере-k3s)
+  и проверен `helm lint`/`template` (`make validate-prod-onprem`), но не
+  прогонялся end-to-end.
 
 Команды для проверки:
 

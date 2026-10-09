@@ -20,6 +20,7 @@ services/<сервис>/   сервисы (cmd, internal, configs, migrations, D
 deploy/helm/         чарты и документация по развёртыванию в Kubernetes
 docker-compose.yaml  локальный запуск всего стека
 scripts/dev-init.sh  подготовка локального окружения
+scripts/k3d.sh       локальный кластер k3d + helm-чарты (make k3d-up)
 ```
 
 ---
@@ -127,6 +128,89 @@ make test-integration  # интеграционные (testcontainers, нуже�
 make lint              # golangci-lint по всем модулям
 make fmt               # форматирование
 ```
+
+---
+
+## Локальный запуск в Kubernetes (k3d, одной командой)
+
+Полноценный прогон **helm-чартов** в настоящем Kubernetes — без ручной установки
+кластера и без `kubectl`-простыней.
+
+### Что нужно
+
+`docker`, `make`, `kubectl`, `helm`, `openssl`, `curl`.
+
+Сам `k3d` ставить не обязательно: если его нет, `make k3d-up` скачает бинарь
+нужной версии в `~/.local/bin` (отключить — `K3D_AUTO_INSTALL=0`, поставить
+отдельно — `make k3d-install`).
+
+### Запуск
+
+```bash
+git clone <repo> && cd e-commerce_shop
+make k3d-up
+```
+
+Команда делает всё сама:
+
+1. создаёт кластер `k3d-ecommerce` (Traefik отключён, ingress проброшен на
+   `localhost:8080`/`8443`);
+2. ставит `ingress-nginx`;
+3. готовит JWT-ключ (тот же `scripts/dev-init.sh`, что и для compose);
+4. ставит инфраструктуру (`infra`, профиль `values-dev.yaml`): PostgreSQL ×4,
+   Redis, MongoDB, Kafka (KRaft), Schema Registry;
+5. ставит приложение (`ecommerce-shop`, `values-dev.yaml`) в **dev-режиме** и
+   добавляет http-Ingress на хост `localhost`.
+
+Образы берутся из публичного GHCR (`ghcr.io/krokozabra213/<сервис>:<appVersion>`),
+поэтому сборка не нужна. Первый запуск скачивает образы и занимает несколько
+минут.
+
+### Куда заходить
+
+| Что | Адрес |
+|---|---|
+| API (через ingress) | http://localhost:8080 |
+| Swagger UI | http://localhost:8080/swagger/index.html |
+| healthz | `curl -s http://localhost:8080/healthz` |
+
+Порты переопределяются: `K3D_HTTP_PORT=9090 K3D_HTTPS_PORT=9443 make k3d-up`.
+
+### Команды
+
+```bash
+make k3d-up          # создать кластер и выкатить dev-стек (образы из GHCR)
+make k3d-up-local    # то же, но образы собираются из текущего кода
+make k3d-load        # пересобрать образы, импортировать в k3d, перезапустить поды
+make k3d-status      # статус кластера и подов
+make k3d-logs SVC=auth-service
+make k3d-down        # удалить кластер (кластер одноразовый)
+make k3d-reset       # удалить и создать заново
+```
+
+`make k3d-up` ставит опубликованную версию из GHCR. Если вы правили код и хотите
+проверить именно его — `make k3d-up-local` (или, на уже поднятом кластере,
+`make k3d-load`): образы собираются локально, импортируются в containerd k3d и
+релиз переключается на них.
+
+### OAuth
+
+Как и в docker compose, вход через Google/GitHub по умолчанию выключен
+(значения-заглушки `disabled` в `deploy/helm/ecommerce-shop/values-dev.yaml`).
+Регистрация по email/паролю, каталог и заказы работают. Чтобы включить OAuth,
+впишите реальные `client_id`/`secret`/`redirect_url` в
+`secrets.values.oauth` профиля `values-dev.yaml` и повторите `make k3d-up`.
+
+### k3d или k3s?
+
+| | k3d | k3s |
+|---|---|---|
+| Где живёт | контейнеры Docker, кластер одноразовый | systemd-служба на машине, живёт постоянно |
+| Запуск | `make k3d-up` | `curl … get.k3s.io` + ingress-nginx (см. ниже) |
+| Остановка | `make k3d-down` | `sudo systemctl stop k3s` |
+| Для чего | быстрый прогон чартов, CI, эксперименты | постоянный локальный стенд |
+
+k3d не трогает ваш k3s: кластер и его kube-контекст (`k3d-ecommerce`) отдельные.
 
 ---
 
