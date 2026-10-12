@@ -140,6 +140,31 @@ func TestProductReadRepo_GetByID(t *testing.T) {
 		require.Error(t, err)
 		assert.ErrorIs(t, err, domain.ErrNotFound)
 	})
+
+	t.Run("error - does not return unpublished product", func(t *testing.T) {
+		defer testutils.TruncateCollections(t, db, "products")
+
+		product := createTestProduct(t, ctx, writeRepo, func(p *domain.Product) {
+			p.Published = false
+		})
+
+		_, err := readRepo.GetByID(ctx, product.ID)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, domain.ErrNotFound)
+	})
+
+	t.Run("success - returns published product", func(t *testing.T) {
+		defer testutils.TruncateCollections(t, db, "products")
+
+		product := createTestProduct(t, ctx, writeRepo, func(p *domain.Product) {
+			p.Published = true
+		})
+
+		found, err := readRepo.GetByID(ctx, product.ID)
+		require.NoError(t, err)
+		assert.Equal(t, product.ID, found.ID)
+		assert.True(t, found.Published)
+	})
 }
 
 func TestProductReadRepo_List(t *testing.T) {

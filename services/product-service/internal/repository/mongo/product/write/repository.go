@@ -181,6 +181,7 @@ func (r *ProductWriteRepo) GetPricesByIDs(ctx context.Context, ids []string) ([]
 
 	filter := bson.M{
 		"_id":       bson.M{"$in": objectIDs},
+		"published": true,
 		"deletedAt": nil,
 	}
 

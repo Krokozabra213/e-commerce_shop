@@ -44,6 +44,7 @@ func (r *ProductReadRepo) GetByID(ctx context.Context, id string) (*domain.Produ
 
 	filter := bson.M{
 		"_id":       oid,
+		"published": true,
 		"deletedAt": nil,
 	}
 
