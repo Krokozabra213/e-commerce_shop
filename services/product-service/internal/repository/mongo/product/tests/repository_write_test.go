@@ -123,7 +123,7 @@ func TestProductWriteRepo_Create(t *testing.T) {
 		assert.Nil(t, found.DeletedAt)
 	})
 
-	t.Run("success - creates product without description", func(t *testing.T) {
+	t.Run("success - creates unpublished product without description", func(t *testing.T) {
 		defer testutils.TruncateCollections(t, db, "products")
 
 		product := &domain.Product{
@@ -140,10 +140,19 @@ func TestProductWriteRepo_Create(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotEmpty(t, id)
 
-		found, err := readRepo.GetByID(ctx, id)
+		// Черновик намеренно недоступен через публичный read-репозиторий,
+		// поэтому проверяем сохранение напрямую в Mongo.
+		oid, err := primitive.ObjectIDFromHex(id)
 		require.NoError(t, err)
-		assert.Nil(t, found.Description)
-		assert.False(t, found.Published)
+
+		var doc struct {
+			Description *string `bson:"description"`
+			Published   bool    `bson:"published"`
+		}
+		err = db.Collection("products").FindOne(ctx, bson.M{"_id": oid}).Decode(&doc)
+		require.NoError(t, err)
+		assert.Nil(t, doc.Description)
+		assert.False(t, doc.Published)
 	})
 
 	t.Run("success - creates product with empty description", func(t *testing.T) {
@@ -712,6 +721,37 @@ func TestProductWriteRepo_GetPricesByIDs(t *testing.T) {
 		require.Len(t, prices, 1)
 		assert.Equal(t, p1.ID, prices[0].ProductID)
 		assert.Equal(t, int64(10000), prices[0].Price)
+	})
+
+	t.Run("success - skips unpublished products", func(t *testing.T) {
+		defer testutils.TruncateCollections(t, db, "products")
+
+		published := createTestProduct(t, ctx, writeRepo, func(p *domain.Product) {
+			p.Price = 10000
+			p.Published = true
+		})
+		draft := createTestProduct(t, ctx, writeRepo, func(p *domain.Product) {
+			p.Price = 20000
+			p.Published = false
+		})
+
+		prices, err := writeRepo.GetPricesByIDs(ctx, []string{published.ID, draft.ID})
+		require.NoError(t, err)
+		require.Len(t, prices, 1)
+		assert.Equal(t, published.ID, prices[0].ProductID)
+		assert.Equal(t, int64(10000), prices[0].Price)
+	})
+
+	t.Run("success - returns empty when all products are unpublished", func(t *testing.T) {
+		defer testutils.TruncateCollections(t, db, "products")
+
+		draft := createTestProduct(t, ctx, writeRepo, func(p *domain.Product) {
+			p.Published = false
+		})
+
+		prices, err := writeRepo.GetPricesByIDs(ctx, []string{draft.ID})
+		require.NoError(t, err)
+		assert.Empty(t, prices)
 	})
 
 	t.Run("success - returns empty for all non-existent IDs", func(t *testing.T) {
