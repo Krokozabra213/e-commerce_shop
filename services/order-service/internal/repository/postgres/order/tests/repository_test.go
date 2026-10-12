@@ -5,6 +5,7 @@ package orderRepository_tests
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -154,13 +155,172 @@ func TestPostgresOrderRepository_Create(t *testing.T) {
 		defer truncateAll(t)
 
 		idempotencyKey := uuid.New()
-		order1 := newOrder(uuid.New(), idempotencyKey, 50000)
-		order2 := newOrder(uuid.New(), idempotencyKey, 60000)
+		userID := uuid.New()
+		order1 := newOrder(userID, idempotencyKey, 50000)
+		order2 := newOrder(userID, idempotencyKey, 60000)
 
 		require.NoError(t, repo.Create(ctx, order1))
 
 		err := repo.Create(ctx, order2)
 		require.ErrorIs(t, err, domain.ErrAlreadyExists)
+	})
+
+	t.Run("success - same idempotency_key for different users", func(t *testing.T) {
+		defer truncateAll(t)
+
+		idempotencyKey := uuid.New()
+		order1 := newOrder(uuid.New(), idempotencyKey, 50000)
+		order2 := newOrder(uuid.New(), idempotencyKey, 60000)
+
+		require.NoError(t, repo.Create(ctx, order1))
+		require.NoError(t, repo.Create(ctx, order2))
+
+		var count int
+		err := testDB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM orders").Scan(&count)
+		require.NoError(t, err)
+		assert.Equal(t, 2, count)
+	})
+}
+
+func TestPostgresOrderRepository_CreateIfAbsent(t *testing.T) {
+	ctx := context.Background()
+	repo := orderRepository.NewPostgresOrderRepository(testDB.Pool)
+
+	t.Run("success - inserts new order", func(t *testing.T) {
+		defer truncateAll(t)
+
+		order := newOrder(uuid.New(), uuid.New(), 50000)
+
+		inserted, err := repo.CreateIfAbsent(ctx, order)
+		require.NoError(t, err)
+		assert.True(t, inserted)
+
+		found, err := repo.GetByID(ctx, order.ID)
+		require.NoError(t, err)
+		assert.Equal(t, order.ID, found.ID)
+		assert.Equal(t, order.UserID, found.UserID)
+		assert.Equal(t, order.IdempotencyKey, found.IdempotencyKey)
+		assert.Equal(t, order.Status, found.Status)
+		assert.Equal(t, order.TotalPrice, found.TotalPrice)
+		assert.WithinDuration(t, order.CreatedAt, found.CreatedAt, time.Second)
+	})
+
+	t.Run("success - returns false on duplicate and keeps original order", func(t *testing.T) {
+		defer truncateAll(t)
+
+		userID := uuid.New()
+		idempotencyKey := uuid.New()
+		original := newOrder(userID, idempotencyKey, 50000)
+		duplicate := newOrder(userID, idempotencyKey, 60000)
+
+		inserted, err := repo.CreateIfAbsent(ctx, original)
+		require.NoError(t, err)
+		assert.True(t, inserted)
+
+		inserted, err = repo.CreateIfAbsent(ctx, duplicate)
+		require.NoError(t, err)
+		assert.False(t, inserted)
+
+		// Дубликат не должен ни появиться, ни перезаписать оригинал.
+		var count int
+		err = testDB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM orders").Scan(&count)
+		require.NoError(t, err)
+		assert.Equal(t, 1, count)
+
+		found, err := repo.GetByUserAndIdempotencyKey(ctx, userID, idempotencyKey)
+		require.NoError(t, err)
+		assert.Equal(t, original.ID, found.ID)
+		assert.Equal(t, int64(50000), found.TotalPrice)
+	})
+
+	t.Run("success - same idempotency key for different users inserts both", func(t *testing.T) {
+		defer truncateAll(t)
+
+		idempotencyKey := uuid.New()
+		order1 := newOrder(uuid.New(), idempotencyKey, 50000)
+		order2 := newOrder(uuid.New(), idempotencyKey, 60000)
+
+		inserted, err := repo.CreateIfAbsent(ctx, order1)
+		require.NoError(t, err)
+		assert.True(t, inserted)
+
+		inserted, err = repo.CreateIfAbsent(ctx, order2)
+		require.NoError(t, err)
+		assert.True(t, inserted)
+
+		var count int
+		err = testDB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM orders").Scan(&count)
+		require.NoError(t, err)
+		assert.Equal(t, 2, count)
+	})
+
+	t.Run("success - conflict does not abort ongoing transaction", func(t *testing.T) {
+		defer truncateAll(t)
+
+		userID := uuid.New()
+		idempotencyKey := uuid.New()
+		original := newOrder(userID, idempotencyKey, 50000)
+		require.NoError(t, repo.Create(ctx, original))
+
+		tx, err := testDB.Pool.Begin(ctx)
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback(ctx) }()
+
+		txCtx := txmanager.CtxWithTx(ctx, tx)
+
+		inserted, err := repo.CreateIfAbsent(txCtx, newOrder(userID, idempotencyKey, 60000))
+		require.NoError(t, err)
+		assert.False(t, inserted)
+
+		// Главная регрессия: после конфликта транзакция должна остаться рабочей.
+		// Раньше здесь был SQLSTATE 25P02, и весь CreateOrder падал с 500.
+		found, err := repo.GetByUserAndIdempotencyKey(txCtx, userID, idempotencyKey)
+		require.NoError(t, err)
+		assert.Equal(t, original.ID, found.ID)
+
+		require.NoError(t, tx.Commit(ctx))
+	})
+
+	t.Run("success - inserts within transaction and commits", func(t *testing.T) {
+		defer truncateAll(t)
+
+		order := newOrder(uuid.New(), uuid.New(), 100000)
+
+		tx, err := testDB.Pool.Begin(ctx)
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback(ctx) }()
+
+		txCtx := txmanager.CtxWithTx(ctx, tx)
+
+		inserted, err := repo.CreateIfAbsent(txCtx, order)
+		require.NoError(t, err)
+		assert.True(t, inserted)
+
+		require.NoError(t, tx.Commit(ctx))
+
+		found, err := repo.GetByID(ctx, order.ID)
+		require.NoError(t, err)
+		assert.Equal(t, order.ID, found.ID)
+	})
+
+	t.Run("success - rollback does not persist order", func(t *testing.T) {
+		defer truncateAll(t)
+
+		order := newOrder(uuid.New(), uuid.New(), 75000)
+
+		tx, err := testDB.Pool.Begin(ctx)
+		require.NoError(t, err)
+
+		txCtx := txmanager.CtxWithTx(ctx, tx)
+
+		inserted, err := repo.CreateIfAbsent(txCtx, order)
+		require.NoError(t, err)
+		assert.True(t, inserted)
+
+		require.NoError(t, tx.Rollback(ctx))
+
+		_, err = repo.GetByID(ctx, order.ID)
+		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 }
 
@@ -232,6 +392,86 @@ func TestPostgresOrderRepository_GetByIdempotencyKey(t *testing.T) {
 
 		_, err := repo.GetByIdempotencyKey(ctx, nonExistentKey)
 		require.ErrorIs(t, err, domain.ErrNotFound)
+	})
+}
+
+func TestPostgresOrderRepository_GetByUserAndIdempotencyKey(t *testing.T) {
+	ctx := context.Background()
+	repo := orderRepository.NewPostgresOrderRepository(testDB.Pool)
+
+	t.Run("success - finds own order", func(t *testing.T) {
+		defer truncateAll(t)
+
+		userID := uuid.New()
+		idempotencyKey := uuid.New()
+		order := newOrder(userID, idempotencyKey, 50000)
+		require.NoError(t, repo.Create(ctx, order))
+
+		found, err := repo.GetByUserAndIdempotencyKey(ctx, userID, idempotencyKey)
+		require.NoError(t, err)
+		assert.Equal(t, order.ID, found.ID)
+		assert.Equal(t, userID, found.UserID)
+		assert.Equal(t, idempotencyKey, found.IdempotencyKey)
+	})
+
+	t.Run("success - same key resolves to own order for each user", func(t *testing.T) {
+		defer truncateAll(t)
+
+		idempotencyKey := uuid.New()
+		user1, user2 := uuid.New(), uuid.New()
+		order1 := newOrder(user1, idempotencyKey, 50000)
+		order2 := newOrder(user2, idempotencyKey, 60000)
+		require.NoError(t, repo.Create(ctx, order1))
+		require.NoError(t, repo.Create(ctx, order2))
+
+		found1, err := repo.GetByUserAndIdempotencyKey(ctx, user1, idempotencyKey)
+		require.NoError(t, err)
+		assert.Equal(t, order1.ID, found1.ID)
+
+		found2, err := repo.GetByUserAndIdempotencyKey(ctx, user2, idempotencyKey)
+		require.NoError(t, err)
+		assert.Equal(t, order2.ID, found2.ID)
+	})
+
+	t.Run("error - does not return another user's order", func(t *testing.T) {
+		defer truncateAll(t)
+
+		idempotencyKey := uuid.New()
+		owner, other := uuid.New(), uuid.New()
+		require.NoError(t, repo.Create(ctx, newOrder(owner, idempotencyKey, 50000)))
+
+		found, err := repo.GetByUserAndIdempotencyKey(ctx, other, idempotencyKey)
+		require.ErrorIs(t, err, domain.ErrNotFound)
+		assert.Nil(t, found)
+	})
+
+	t.Run("error - key not found", func(t *testing.T) {
+		defer truncateAll(t)
+
+		found, err := repo.GetByUserAndIdempotencyKey(ctx, uuid.New(), uuid.New())
+		require.ErrorIs(t, err, domain.ErrNotFound)
+		assert.Nil(t, found)
+	})
+
+	t.Run("success - reads within transaction", func(t *testing.T) {
+		defer truncateAll(t)
+
+		userID := uuid.New()
+		idempotencyKey := uuid.New()
+		order := newOrder(userID, idempotencyKey, 50000)
+		require.NoError(t, repo.Create(ctx, order))
+
+		tx, err := testDB.Pool.Begin(ctx)
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback(ctx) }()
+
+		txCtx := txmanager.CtxWithTx(ctx, tx)
+
+		found, err := repo.GetByUserAndIdempotencyKey(txCtx, userID, idempotencyKey)
+		require.NoError(t, err)
+		assert.Equal(t, order.ID, found.ID)
+
+		require.NoError(t, tx.Commit(ctx))
 	})
 }
 
@@ -460,8 +700,94 @@ func TestPostgresOrderRepository_ConcurrentIdempotency(t *testing.T) {
 			t.Fatal("both creates failed")
 		}
 
-		found, err := repo.GetByIdempotencyKey(ctx, idempotencyKey)
+		found, err := repo.GetByUserAndIdempotencyKey(ctx, userID, idempotencyKey)
 		require.NoError(t, err)
 		assert.NotNil(t, found)
 	})
+
+	t.Run("concurrent CreateIfAbsent with same idempotency key - exactly one insert", func(t *testing.T) {
+		defer truncateAll(t)
+
+		idempotencyKey := uuid.New()
+		userID := uuid.New()
+
+		orders := []*domain.Order{
+			newOrder(userID, idempotencyKey, 50000),
+			newOrder(userID, idempotencyKey, 60000),
+			newOrder(userID, idempotencyKey, 70000),
+		}
+
+		type result struct {
+			inserted bool
+			err      error
+		}
+		results := make(chan result, len(orders))
+
+		for _, order := range orders {
+			go func(o *domain.Order) {
+				inserted, err := repo.CreateIfAbsent(ctx, o)
+				results <- result{inserted: inserted, err: err}
+			}(order)
+		}
+
+		insertedCount := 0
+		for range orders {
+			res := <-results
+			require.NoError(t, res.err)
+			if res.inserted {
+				insertedCount++
+			}
+		}
+
+		assert.Equal(t, 1, insertedCount)
+
+		var count int
+		err := testDB.Pool.QueryRow(
+			ctx,
+			"SELECT COUNT(*) FROM orders WHERE user_id = $1 AND idempotency_key = $2",
+			userID, idempotencyKey,
+		).Scan(&count)
+		require.NoError(t, err)
+		assert.Equal(t, 1, count)
+
+		found, err := repo.GetByUserAndIdempotencyKey(ctx, userID, idempotencyKey)
+		require.NoError(t, err)
+		assert.NotNil(t, found)
+	})
+}
+
+func TestOrders_IdempotencyUniquenessIsScopedToUser(t *testing.T) {
+	ctx := context.Background()
+
+	rows, err := testDB.Pool.Query(ctx, `
+		SELECT indexdef
+		FROM pg_indexes
+		WHERE schemaname = current_schema() AND tablename = 'orders'
+	`)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	var defs []string
+	for rows.Next() {
+		var def string
+		require.NoError(t, rows.Scan(&def))
+		defs = append(defs, def)
+	}
+	require.NoError(t, rows.Err())
+
+	hasComposite, hasGlobalUnique := false, false
+	for _, def := range defs {
+		if !strings.Contains(strings.ToUpper(def), "UNIQUE") {
+			continue
+		}
+		if strings.Contains(def, "(user_id, idempotency_key)") {
+			hasComposite = true
+		}
+		if strings.Contains(def, "(idempotency_key)") {
+			hasGlobalUnique = true
+		}
+	}
+
+	assert.True(t, hasComposite, "ожидался UNIQUE индекс (user_id, idempotency_key); индексы: %v", defs)
+	assert.False(t, hasGlobalUnique, "глобальный UNIQUE(idempotency_key) должен быть удалён; индексы: %v", defs)
 }
