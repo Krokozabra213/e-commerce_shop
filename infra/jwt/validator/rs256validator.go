@@ -12,10 +12,11 @@ import (
 )
 
 var (
-	ErrEmptyPublicKey = errors.New("empty public key")
-	ErrEmptyIssuer    = errors.New("empty issuer")
-	ErrParseJWT       = errors.New("failed to parse jwt token")
-	ErrJWTID          = errors.New("invalid jwt id")
+	ErrEmptyPublicKey      = errors.New("empty public key")
+	ErrEmptyIssuer         = errors.New("empty issuer")
+	ErrParseJWT            = errors.New("failed to parse jwt token")
+	ErrJWTID               = errors.New("invalid jwt id")
+	ErrUnexpectedTokenType = errors.New("unexpected token type")
 )
 
 type RS256Validator struct {
@@ -95,6 +96,9 @@ func (v *RS256Validator) ValidateAccess(tokenString string) (*jwtmanager.AccessC
 		return nil, err
 	}
 
+	if claims.TokenType != jwtmanager.TokenTypeAccess {
+		return nil, fmt.Errorf("%w: %w", ErrParseJWT, ErrUnexpectedTokenType)
+	}
 	return claims, nil
 }
 
@@ -107,6 +111,9 @@ func (v *RS256Validator) ValidateRefresh(tokenString string) (*jwtmanager.Refres
 
 	if claims.ID == "" {
 		return nil, ErrJWTID
+	}
+	if claims.TokenType != jwtmanager.TokenTypeRefresh {
+		return nil, fmt.Errorf("%w: %w", ErrParseJWT, ErrUnexpectedTokenType)
 	}
 
 	return claims, nil

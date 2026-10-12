@@ -64,6 +64,7 @@ func TestValidateAccess_Success(t *testing.T) {
 	userID := uuid.New()
 
 	claims := jwtmanager.AccessClaims{
+		TokenType: jwtmanager.TokenTypeAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "test-issuer",
 			Subject:   userID.String(),
@@ -75,6 +76,7 @@ func TestValidateAccess_Success(t *testing.T) {
 
 	got, err := v.ValidateAccess(tokenString)
 	require.NoError(t, err)
+	assert.Equal(t, jwtmanager.TokenTypeAccess, got.TokenType)
 	assert.Equal(t, "test-issuer", got.Issuer)
 	assert.Equal(t, userID.String(), got.Subject)
 }
@@ -85,6 +87,7 @@ func TestValidateAccess_Expired(t *testing.T) {
 	require.NoError(t, err)
 
 	claims := jwtmanager.AccessClaims{
+		TokenType: jwtmanager.TokenTypeAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "test-issuer",
 			Subject:   uuid.New().String(),
@@ -104,6 +107,7 @@ func TestValidateAccess_WrongSignature(t *testing.T) {
 	v := newTestValidator(t, &key1.PublicKey)
 
 	claims := jwtmanager.AccessClaims{
+		TokenType: jwtmanager.TokenTypeAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "test-issuer",
 			Subject:   uuid.New().String(),
@@ -121,6 +125,7 @@ func TestValidateAccess_WrongIssuer(t *testing.T) {
 	v := newTestValidator(t, &key.PublicKey)
 
 	claims := jwtmanager.AccessClaims{
+		TokenType: jwtmanager.TokenTypeAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "evil-issuer",
 			Subject:   uuid.New().String(),
@@ -138,6 +143,7 @@ func TestValidateAccess_WrongAlgorithm(t *testing.T) {
 	v := newTestValidator(t, &key.PublicKey)
 
 	claims := jwtmanager.AccessClaims{
+		TokenType: jwtmanager.TokenTypeAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "test-issuer",
 			Subject:   uuid.New().String(),
@@ -157,6 +163,7 @@ func TestValidateRefresh_Success(t *testing.T) {
 	userID := uuid.New()
 
 	claims := jwtmanager.RefreshClaims{
+		TokenType: jwtmanager.TokenTypeRefresh,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "test-issuer",
 			Subject:   userID.String(),
@@ -169,6 +176,7 @@ func TestValidateRefresh_Success(t *testing.T) {
 
 	got, err := v.ValidateRefresh(tokenString)
 	require.NoError(t, err)
+	assert.Equal(t, jwtmanager.TokenTypeRefresh, got.TokenType)
 	assert.NotEmpty(t, got.ID)
 	assert.Equal(t, userID.String(), got.Subject)
 }
@@ -178,6 +186,7 @@ func TestValidateRefresh_MissingJTI(t *testing.T) {
 	v := newTestValidator(t, &key.PublicKey)
 
 	claims := jwtmanager.RefreshClaims{
+		TokenType: jwtmanager.TokenTypeRefresh,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "test-issuer",
 			Subject:   uuid.New().String(),
@@ -190,12 +199,159 @@ func TestValidateRefresh_MissingJTI(t *testing.T) {
 	assert.ErrorIs(t, err, jwtvalidator.ErrJWTID, "refresh без jti должен отклоняться")
 }
 
+// Регресс на уязвимость: refresh-токен не должен приниматься как access.
+func TestValidateAccess_RejectsRefreshToken(t *testing.T) {
+	key := generateTestKey(t)
+	v := newTestValidator(t, &key.PublicKey)
+
+	claims := jwtmanager.RefreshClaims{
+		TokenType: jwtmanager.TokenTypeRefresh,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "test-issuer",
+			Subject:   uuid.New().String(),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(30 * 24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ID:        uuid.NewString(),
+		},
+	}
+	tokenString := signToken(t, &claims, key)
+
+	got, err := v.ValidateAccess(tokenString)
+	require.Error(t, err, "refresh-токен не должен проходить ValidateAccess")
+	assert.Nil(t, got)
+	assert.ErrorIs(t, err, jwtvalidator.ErrUnexpectedTokenType)
+	assert.ErrorIs(t, err, jwtvalidator.ErrParseJWT)
+}
+
+// access-токен без jti не должен проходить ValidateRefresh.
+func TestValidateRefresh_RejectsAccessToken(t *testing.T) {
+	key := generateTestKey(t)
+	v := newTestValidator(t, &key.PublicKey)
+
+	claims := jwtmanager.AccessClaims{
+		TokenType: jwtmanager.TokenTypeAccess,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "test-issuer",
+			Subject:   uuid.New().String(),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	tokenString := signToken(t, &claims, key)
+
+	got, err := v.ValidateRefresh(tokenString)
+	require.Error(t, err, "access-токен не должен проходить ValidateRefresh")
+	assert.Nil(t, got)
+	assert.ErrorIs(t, err, jwtvalidator.ErrJWTID, "у access-токена нет jti")
+}
+
+// Даже если у токена есть jti, но тип access — ValidateRefresh обязан его отклонить.
+// Ловит регресс вида "сравнили с TokenTypeAccess вместо TokenTypeRefresh".
+func TestValidateRefresh_RejectsAccessTypedTokenWithJTI(t *testing.T) {
+	key := generateTestKey(t)
+	v := newTestValidator(t, &key.PublicKey)
+
+	claims := jwtmanager.RefreshClaims{
+		TokenType: jwtmanager.TokenTypeAccess,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "test-issuer",
+			Subject:   uuid.New().String(),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ID:        uuid.NewString(),
+		},
+	}
+	tokenString := signToken(t, &claims, key)
+
+	_, err := v.ValidateRefresh(tokenString)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, jwtvalidator.ErrUnexpectedTokenType)
+}
+
+// Токены, выпущенные до введения token_type, больше не принимаются (осознанный
+// разрыв совместимости: иначе дыра осталась бы открытой).
+func TestValidateAccess_RejectsTokenWithoutType(t *testing.T) {
+	key := generateTestKey(t)
+	v := newTestValidator(t, &key.PublicKey)
+
+	claims := jwtmanager.AccessClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "test-issuer",
+			Subject:   uuid.New().String(),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	tokenString := signToken(t, &claims, key)
+
+	_, err := v.ValidateAccess(tokenString)
+	require.Error(t, err, "токен без token_type не должен проходить")
+	assert.ErrorIs(t, err, jwtvalidator.ErrUnexpectedTokenType)
+}
+
+func TestValidateRefresh_RejectsTokenWithoutType(t *testing.T) {
+	key := generateTestKey(t)
+	v := newTestValidator(t, &key.PublicKey)
+
+	claims := jwtmanager.RefreshClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "test-issuer",
+			Subject:   uuid.New().String(),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ID:        uuid.NewString(),
+		},
+	}
+	tokenString := signToken(t, &claims, key)
+
+	_, err := v.ValidateRefresh(tokenString)
+	require.Error(t, err, "токен без token_type не должен проходить")
+	assert.ErrorIs(t, err, jwtvalidator.ErrUnexpectedTokenType)
+}
+
+// Сквозная проверка на реальном менеджере: типы токенов не взаимозаменяемы.
+func TestManagerTokens_AreNotInterchangeable(t *testing.T) {
+	key := generateTestKey(t)
+	mgr, err := jwtmanager.NewRS256Manager(key, 15*time.Minute, 30*24*time.Hour, "test-issuer")
+	require.NoError(t, err)
+	v := newTestValidator(t, &key.PublicKey)
+
+	access, refresh, _, err := mgr.GenerateTokens(uuid.New())
+	require.NoError(t, err)
+
+	t.Run("access token passes ValidateAccess", func(t *testing.T) {
+		got, err := v.ValidateAccess(access)
+		require.NoError(t, err)
+		assert.Equal(t, jwtmanager.TokenTypeAccess, got.TokenType)
+	})
+
+	t.Run("refresh token is rejected by ValidateAccess", func(t *testing.T) {
+		got, err := v.ValidateAccess(refresh)
+		require.Error(t, err)
+		assert.Nil(t, got)
+		assert.ErrorIs(t, err, jwtvalidator.ErrUnexpectedTokenType)
+	})
+
+	t.Run("refresh token passes ValidateRefresh", func(t *testing.T) {
+		got, err := v.ValidateRefresh(refresh)
+		require.NoError(t, err)
+		assert.Equal(t, jwtmanager.TokenTypeRefresh, got.TokenType)
+	})
+
+	t.Run("access token is rejected by ValidateRefresh", func(t *testing.T) {
+		got, err := v.ValidateRefresh(access)
+		require.Error(t, err)
+		assert.Nil(t, got)
+	})
+}
+
 func TestValidateAccess_Leeway(t *testing.T) {
 	key := generateTestKey(t)
 	v, err := jwtvalidator.NewRS256Validator(&key.PublicKey, 60*time.Second, "test-issuer")
 	require.NoError(t, err)
 
 	claims := jwtmanager.AccessClaims{
+		TokenType: jwtmanager.TokenTypeAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "test-issuer",
 			Subject:   uuid.New().String(),
@@ -216,6 +372,7 @@ func TestValidateAccess_BeyondLeeway(t *testing.T) {
 	require.NoError(t, err)
 
 	claims := jwtmanager.AccessClaims{
+		TokenType: jwtmanager.TokenTypeAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "test-issuer",
 			Subject:   uuid.New().String(),
@@ -235,6 +392,7 @@ func TestRotatePublicKey(t *testing.T) {
 	v := newTestValidator(t, &oldKey.PublicKey)
 
 	claims := jwtmanager.AccessClaims{
+		TokenType: jwtmanager.TokenTypeAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "test-issuer",
 			Subject:   uuid.New().String(),
@@ -271,6 +429,7 @@ func TestRotateIssuer(t *testing.T) {
 	v := newTestValidator(t, &key.PublicKey)
 
 	claims := jwtmanager.AccessClaims{
+		TokenType: jwtmanager.TokenTypeAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "new-issuer",
 			Subject:   uuid.New().String(),
@@ -302,6 +461,7 @@ func TestConcurrent_ValidateAndRotate(t *testing.T) {
 	v := newTestValidator(t, &key.PublicKey)
 
 	claims := jwtmanager.AccessClaims{
+		TokenType: jwtmanager.TokenTypeAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "test-issuer",
 			Subject:   uuid.New().String(),

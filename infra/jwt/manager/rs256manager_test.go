@@ -63,6 +63,8 @@ func TestGenerateAccess_Success(t *testing.T) {
 
 	assert.Equal(t, "test-issuer", claims.Issuer)
 	assert.Equal(t, userID.String(), claims.Subject)
+	assert.Equal(t, jwtmanager.TokenTypeAccess, claims.TokenType)
+	assert.Empty(t, claims.ID, "access-токен не должен иметь jti")
 	assert.NotNil(t, claims.ExpiresAt)
 	assert.NotNil(t, claims.IssuedAt)
 
@@ -84,6 +86,7 @@ func TestGenerateRefresh_Success(t *testing.T) {
 
 	assert.Equal(t, "test-issuer", claims.Issuer)
 	assert.Equal(t, userID.String(), claims.Subject)
+	assert.Equal(t, jwtmanager.TokenTypeRefresh, claims.TokenType)
 	assert.NotEmpty(t, claims.ID, "refresh token must have jti")
 
 	expectedExp := time.Now().Add(24 * time.Hour)
@@ -127,6 +130,28 @@ func TestGenerateTokens_Success(t *testing.T) {
 	assert.NotEmpty(t, refreshExp)
 	assert.NotEmpty(t, refresh)
 	assert.NotEqual(t, access, refresh)
+}
+
+// Пара токенов должна различаться типом: именно на этом строится разделение
+// access/refresh в валидаторе.
+func TestGenerateTokens_TypesAreDistinct(t *testing.T) {
+	mgr, key := newTestManager(t)
+	userID := uuid.New()
+
+	access, refresh, _, err := mgr.GenerateTokens(userID)
+	require.NoError(t, err)
+
+	accessClaims := &jwtmanager.AccessClaims{}
+	parseToken(t, access, &key.PublicKey, accessClaims)
+	assert.Equal(t, jwtmanager.TokenTypeAccess, accessClaims.TokenType)
+	assert.Empty(t, accessClaims.ID, "access-токен не должен иметь jti")
+
+	refreshClaims := &jwtmanager.RefreshClaims{}
+	parseToken(t, refresh, &key.PublicKey, refreshClaims)
+	assert.Equal(t, jwtmanager.TokenTypeRefresh, refreshClaims.TokenType)
+	assert.NotEmpty(t, refreshClaims.ID, "refresh-токен должен иметь jti")
+
+	assert.NotEqual(t, accessClaims.TokenType, refreshClaims.TokenType)
 }
 
 func TestAccessClaims_UserIDUUID_Success(t *testing.T) {

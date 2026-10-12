@@ -19,11 +19,18 @@ var (
 	ErrEmptyIssuer        = errors.New("empty issuer")
 )
 
+const (
+	TokenTypeAccess  = "access"
+	TokenTypeRefresh = "refresh"
+)
+
 type AccessClaims struct {
+	TokenType string `json:"token_type"`
 	jwt.RegisteredClaims
 }
 
 type RefreshClaims struct {
+	TokenType string `json:"token_type"`
 	jwt.RegisteredClaims
 }
 
@@ -115,6 +122,7 @@ func (m *RS256JWTManager) GenerateAccess(userID uuid.UUID) (string, error) {
 
 	now := time.Now()
 	claims := AccessClaims{
+		TokenType: TokenTypeAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    issuer,
 			Subject:   userID.String(),
@@ -138,6 +146,7 @@ func (m *RS256JWTManager) GenerateRefresh(userID uuid.UUID) (string, time.Time, 
 	now := time.Now()
 	refreshExp := now.Add(m.refreshTTL)
 	claims := RefreshClaims{
+		TokenType: TokenTypeRefresh,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    issuer,
 			Subject:   userID.String(),
