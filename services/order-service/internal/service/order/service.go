@@ -18,13 +18,13 @@ type ProductServiceClient interface {
 }
 
 type OrderRepository interface {
-	Create(ctx context.Context, order *domain.Order) (err error)
-	GetByIdempotencyKey(ctx context.Context, idempotencyKey uuid.UUID) (order *domain.Order, err error)
+	GetByUserAndIdempotencyKey(ctx context.Context, userID, idempotencyKey uuid.UUID) (*domain.Order, error)
 	CreateItems(ctx context.Context, items []domain.OrderItem) (err error)
 	GetByID(ctx context.Context, id uuid.UUID) (order *domain.Order, err error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.OrderStatus) (err error)
 	GetListByUserID(ctx context.Context, userID uuid.UUID) ([]domain.Order, error)
 	UpdateStatusIfCurrent(ctx context.Context, id uuid.UUID, newStatus, expectedStatus domain.OrderStatus) error
+	CreateIfAbsent(ctx context.Context, order *domain.Order) (inserted bool, err error)
 }
 
 type SagaRepository interface {

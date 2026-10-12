@@ -4,7 +4,7 @@ SELECT 'up SQL query';
 CREATE TABLE orders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL,
-    idempotency_key UUID NOT NULL UNIQUE,
+    idempotency_key UUID NOT NULL,
     status TEXT NOT NULL CHECK (status IN (
         'NEW',
         'RESERVED',
@@ -18,9 +18,9 @@ CREATE TABLE orders (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- CREATE INDEX idx_orders_status ON orders(status);
 CREATE INDEX idx_orders_user_id ON orders(user_id);
--- CREATE INDEX idx_orders_created_at ON orders(created_at DESC);
+CREATE UNIQUE INDEX orders_user_idempotency_key_uidx ON orders (user_id, idempotency_key);
+CREATE INDEX idx_orders_created_at ON orders(created_at DESC);
 
 -- +goose Down
 SELECT 'down SQL query';

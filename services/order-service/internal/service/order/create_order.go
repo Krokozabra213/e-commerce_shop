@@ -2,7 +2,6 @@ package orderService
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -59,38 +58,22 @@ func (s *OrderService) CreateOrder(ctx context.Context, input svcDTO.CreateOrder
 	var output *svcDTO.CreateOrderOutput
 
 	txErr := s.txManager.WithinTransaction(ctx, func(ctx context.Context) error {
-		if err := s.orderRepo.Create(ctx, order); err != nil {
-			if errors.Is(err, domain.ErrAlreadyExists) {
-				existingOrder, getErr := s.orderRepo.GetByIdempotencyKey(ctx, input.IdempotencyKey)
-				if getErr != nil {
-					if errors.Is(getErr, domain.ErrNotFound) {
-						return apperror.NewAppErr(
-							apperror.CodeConflict,
-							"orderRepo.GetByIdempotencyKey",
-							"Order is being created, please retry",
-							getErr,
-							apperror.LevelDebug,
-							nil,
-						)
-					}
+		inserted, err := s.orderRepo.CreateIfAbsent(ctx, order)
+		if err != nil {
+			return apperror.NewInternal("orderRepo.CreateIfAbsent", err, "Что-то пошло не так", nil)
+		}
 
-					return apperror.NewInternal(
-						"orderRepo.GetByIdempotencyKey",
-						getErr,
-						"Что-то пошло не так",
-						nil,
-					)
-				}
-
-				output = &svcDTO.CreateOrderOutput{
-					OrderID:    existingOrder.ID,
-					Status:     existingOrder.Status.String(),
-					TotalPrice: existingOrder.TotalPrice,
-				}
-				return nil
+		if !inserted {
+			existing, err := s.orderRepo.GetByUserAndIdempotencyKey(ctx, input.UserID, input.IdempotencyKey)
+			if err != nil {
+				return apperror.NewInternal("orderRepo.GetByIdempotencyKey", err, "Что-то пошло не так", nil)
 			}
-
-			return apperror.NewInternal("orderRepo.Create", err, "Что-то пошло не так", nil)
+			output = &svcDTO.CreateOrderOutput{
+				OrderID:    existing.ID,
+				Status:     existing.Status.String(),
+				TotalPrice: existing.TotalPrice,
+			}
+			return nil
 		}
 
 		for i := range orderItems {

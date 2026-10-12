@@ -22,6 +22,54 @@ func NewPostgresOrderRepository(pool *pgxpool.Pool) *PostgresOrderRepository {
 	return &PostgresOrderRepository{pool: pool}
 }
 
+func (r *PostgresOrderRepository) CreateIfAbsent(ctx context.Context, order *domain.Order) (inserted bool, err error) {
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
+
+	query := `
+		INSERT INTO orders (
+			id,
+			user_id,
+			idempotency_key,
+			status,
+			total_price,
+			created_at,
+			updated_at
+		)
+		VALUES (
+			@id,
+			@user_id,
+			@idempotency_key,
+			@status,
+			@total_price,
+			@created_at,
+			@updated_at
+		) 
+		ON CONFLICT (user_id, idempotency_key) DO NOTHING
+        RETURNING id
+	`
+
+	args := pgx.NamedArgs{
+		"id":              order.ID,
+		"user_id":         order.UserID,
+		"idempotency_key": order.IdempotencyKey,
+		"status":          order.Status.String(),
+		"total_price":     order.TotalPrice,
+		"created_at":      order.CreatedAt,
+		"updated_at":      order.UpdatedAt,
+	}
+
+	var id uuid.UUID
+	switch err := querier.QueryRow(ctx, query, args).Scan(&id); {
+	case errors.Is(err, pgx.ErrNoRows):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("insert order: %w", err)
+	default:
+		return true, nil
+	}
+}
+
 func (r *PostgresOrderRepository) Create(ctx context.Context, order *domain.Order) error {
 	tx := txmanager.ExtractTx(ctx)
 	querier := txmanager.GetQuerier(r.pool, tx)
@@ -187,6 +235,40 @@ func (r *PostgresOrderRepository) GetByIdempotencyKey(ctx context.Context, idemp
 			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("scan order by idempotency_key: %w", err)
+	}
+
+	return order, nil
+}
+
+func (r *PostgresOrderRepository) GetByUserAndIdempotencyKey(
+	ctx context.Context, userID, idempotencyKey uuid.UUID,
+) (*domain.Order, error) {
+	tx := txmanager.ExtractTx(ctx)
+	querier := txmanager.GetQuerier(r.pool, tx)
+
+	query := `
+		SELECT 
+			id,
+			user_id,
+			idempotency_key,
+			status,
+			total_price,
+			created_at,
+			updated_at
+		FROM orders
+		WHERE user_id = @user_id AND idempotency_key = @idempotency_key
+	`
+
+	args := pgx.NamedArgs{"user_id": userID, "idempotency_key": idempotencyKey}
+
+	row := querier.QueryRow(ctx, query, args)
+
+	order, err := scanOrder(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("scan order by idempotency_key and user: %w", err)
 	}
 
 	return order, nil
