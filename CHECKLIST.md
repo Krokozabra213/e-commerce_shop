@@ -19,6 +19,7 @@
 |---|---|---|
 | `govulncheck` | `govulncheck ./...` по каждому модулю `go.work` | известные уязвимости в зависимостях |
 | `trivy` | `trivy fs --config trivy.yaml` | HIGH/CRITICAL в файлах (конфиг в `trivy.yaml`) |
+| `image-scan` | сборка 10 образов + `trivy image` | образ не от root (`USER` в конфиге образа) и HIGH/CRITICAL в самих образах |
 | `gitleaks` | `gitleaks-action` с `.gitleaks.toml` | утечки секретов в истории |
 | `lint` | `make lint`, `make fmt-check` | golangci-lint v2.13.2 + форматирование |
 | `unit-test` | `make test-race` | unit-тесты с race-детектором |
@@ -26,7 +27,8 @@
 | `codegen` | `buf lint && buf generate`, `make generate` + `git diff --exit-code` | сгенерированный код совпадает со спеками |
 
 `.github/workflows/deploy.yaml` — **только на push тега `v*`** (или вручную):
-собирает 10 образов, пушит в GHCR и падает, если `appVersion` в
+собирает 10 образов, проверяет, что они не работают от root, сканирует их
+`trivy image` и только после этого пушит в GHCR; падает, если `appVersion` в
 `deploy/helm/ecommerce-shop/Chart.yaml` не совпадает с тегом.
 
 ### Локальная проверка перед пушем
@@ -51,6 +53,12 @@ for d in $(go list -m -f '{{.Dir}}'); do
 done
 trivy fs --config trivy.yaml .
 gitleaks detect --config .gitleaks.toml
+
+# 3a) образы (то же, что job image-scan): сборка, non-root, CVE базового слоя
+PROJECT=ecommerce-shop deploy/helm/scripts/build-images.sh
+for img in $(PROJECT=ecommerce-shop deploy/helm/scripts/build-images.sh --print-tags); do
+  trivy image --ignore-unfixed --severity HIGH,CRITICAL "$img"
+done
 
 # 4) кодогенерация (то же, что job codegen)
 make -C api proto-all
@@ -93,6 +101,10 @@ git push && git push --tags
 
 * `services/*/.env`
 * `services/auth-service/certs/*.pem`
+
+`services/auth-service/certs/jwt-private.pem` — dev-ключ: `scripts/dev-init.sh`
+выставляет ему `0644`, иначе контейнер под uid 65534 не прочитает его и
+auth-service упадёт на старте. В проде ключ монтируется из Secret.
 
 Если добавляете новый секрет — сразу добавляйте путь в `.gitignore`, иначе
 `gitleaks` уронит CI (а если и нет — секрет утечёт).

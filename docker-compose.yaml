@@ -249,6 +249,7 @@ services:
     build:
       context: .
       dockerfile: services/auth-service/Migrate.Dockerfile
+    user: "65534:65534"
     depends_on:
       auth-postgres:
         condition: service_healthy
@@ -263,6 +264,7 @@ services:
     build:
       context: .
       dockerfile: services/inventory-service/Migrate.Dockerfile
+    user: "65534:65534"
     depends_on:
       inventory-postgres:
         condition: service_healthy
@@ -277,6 +279,7 @@ services:
     build:
       context: .
       dockerfile: services/order-service/Migrate.Dockerfile
+    user: "65534:65534"
     depends_on:
       order-postgres:
         condition: service_healthy
@@ -291,6 +294,7 @@ services:
     build:
       context: .
       dockerfile: services/user-service/Migrate.Dockerfile
+    user: "65534:65534"
     depends_on:
       user-postgres:
         condition: service_healthy
@@ -391,6 +395,9 @@ services:
     build:
       context: .
       dockerfile: services/auth-service/Dockerfile
+    # Непривилегированный пользователь; совпадает с USER в образе и с
+    # runAsUser/runAsGroup в deploy/helm/ecommerce-shop.
+    user: "65534:65534"
     restart: always
     ports:
       - "8100:8100"
@@ -436,6 +443,7 @@ services:
     build:
       context: .
       dockerfile: services/user-service/Dockerfile
+    user: "65534:65534"
     restart: always
     ports:
       - "8200:8200"
@@ -474,6 +482,7 @@ services:
     build:
       context: .
       dockerfile: services/product-service/Dockerfile
+    user: "65534:65534"
     restart: always
     ports:
       - "8300:8300"
@@ -504,6 +513,7 @@ services:
     build:
       context: .
       dockerfile: services/inventory-service/Dockerfile
+    user: "65534:65534"
     restart: always
     ports:
       - "8400:8400"
@@ -543,6 +553,7 @@ services:
     build:
       context: .
       dockerfile: services/order-service/Dockerfile
+    user: "65534:65534"
     restart: always
     ports:
       - "8600:8600"
@@ -581,6 +592,7 @@ services:
     build:
       context: .
       dockerfile: services/api-gateway/Dockerfile
+    user: "65534:65534"
     restart: always
     ports:
       - "4000:4000"

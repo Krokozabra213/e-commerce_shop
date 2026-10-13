@@ -6,7 +6,8 @@
 #   1) создаёт services/<сервис>/.env из значений по умолчанию, совпадающих с
 #      инфраструктурой docker-compose.yaml (postgres/postgres, redis/redis,
 #      mongo admin/admin123). Существующие .env НЕ перезаписываются;
-#   2) генерирует приватный ключ подписи JWT, если его нет.
+#   2) генерирует приватный ключ подписи JWT, если его нет, и выставляет ему
+#      права 0644 — контейнеры работают от uid 65534 и должны его читать.
 #
 # Запускается автоматически из `make dev-up`, но можно вызвать отдельно:
 #   ./scripts/dev-init.sh
@@ -124,9 +125,17 @@ if [ -s "${JWT_KEY}" ]; then
 else
   mkdir -p "$(dirname "${JWT_KEY}")"
   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "${JWT_KEY}" 2>/dev/null
-  chmod 600 "${JWT_KEY}"
   log "сгенерирован ключ JWT: ${JWT_KEY}"
 fi
+
+# Все контейнеры запускаются от непривилегированного пользователя 65534
+# (USER в services/*/Dockerfile и user: в docker-compose.yaml), а bind-mount
+# сохраняет права файла с хоста. При 0600 сервис не прочитает ключ и упадёт
+# на старте, поэтому локальному dev-ключу нужен режим «читают все».
+# Ключ dev-only: в проде он монтируется из Kubernetes Secret, где доступ
+# выдаётся через fsGroup=65534 (deploy/helm/ecommerce-shop).
+# Строка применяется и к уже существующему ключу — раньше здесь был chmod 600.
+chmod 0644 "${JWT_KEY}"
 
 openssl pkey -in "${JWT_KEY}" -noout 2>/dev/null \
   || die "файл ${JWT_KEY} не является корректным приватным ключом"

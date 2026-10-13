@@ -9,16 +9,21 @@ COPY . .
 WORKDIR /build/services/product-service
 
 RUN go mod download
-RUN GOOS=linux GOARCH=amd64 go build -o /product-service ./cmd/server
+# CGO_ENABLED=0 обязателен: финальный образ distroless/static не содержит libc.
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /product-service ./cmd/server
 
 
-FROM alpine:3.20 AS final
-
-RUN apk add --no-cache ca-certificates
+# distroless: без shell, пакетного менеджера и busybox; внутри уже есть
+# ca-certificates, tzdata и /etc/nsswitch.conf (нужен pure-Go резолверу).
+FROM gcr.io/distroless/static-debian12:nonroot
 
 WORKDIR /app
-COPY --from=build /product-service .
-COPY --from=build /build/services/product-service/configs ./configs
-COPY --from=build /build/services/product-service/api ./api
+COPY --from=build --chown=65534:65534 /product-service .
+COPY --from=build --chown=65534:65534 /build/services/product-service/configs ./configs
+COPY --from=build --chown=65534:65534 /build/services/product-service/api ./api
+
+# uid/gid совпадают с defaults.podSecurityContext в deploy/helm/ecommerce-shop.
+# USER в образе — страховка для запусков вне чарта (docker run/compose, CI).
+USER 65534:65534
 
 CMD ["./product-service"]

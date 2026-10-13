@@ -4,6 +4,7 @@ services:
     build:
       context: ../..
       dockerfile: services/inventory-service/Dockerfile
+    user: "65534:65534"
     restart: always
     ports:
       - "8400:8400"
@@ -26,6 +27,7 @@ services:
     build:
       context: ../..
       dockerfile: services/inventory-service/Migrate.Dockerfile
+    user: "65534:65534"
     depends_on:
       postgres:
         condition: service_healthy

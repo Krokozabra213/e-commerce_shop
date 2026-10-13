@@ -54,6 +54,65 @@ jobs:
           exit-code: '1'
           severity: 'HIGH,CRITICAL'
 
+  image-scan:
+    name: "Образы: сборка, non-root, Trivy"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Образы собираются локально, без push: сначала проверки, потом релиз.
+      - name: Собрать образы
+        env:
+          PROJECT: ecommerce-shop
+          CACHE_FROM: type=gha
+          CACHE_TO: type=gha,mode=max
+        run: deploy/helm/scripts/build-images.sh
+
+      # Регрессия «образ снова собрался от root» проверяется по конфигу образа:
+      # у distroless нет shell, поэтому `id` внутри контейнера не выполнить.
+      - name: Проверить, что образы не работают от root
+        run: |
+          set -euo pipefail
+          while read -r image; do
+            [ -n "${image}" ] || continue
+            user="$(docker image inspect --format '{{.Config.User}}' "${image}")"
+            echo "${image} -> USER=${user:-<пусто = root>}"
+            case "${user}" in
+              65534*|nobody*) ;;
+              *)
+                echo "::error::${image} собран без непривилегированного USER (получено '${user}')"
+                exit 1
+                ;;
+            esac
+          done < <(PROJECT=ecommerce-shop deploy/helm/scripts/build-images.sh --print-tags)
+
+      - name: Установить Trivy
+        uses: aquasecurity/setup-trivy@v0.3.1
+        with:
+          version: v0.75.0
+          cache: true
+
+      # Сканируются именно образы: job `trivy` выше идёт с scan-type=fs и CVE
+      # базового слоя (а также финальный USER) не видит.
+      - name: Сканировать образы (Trivy)
+        run: |
+          set -euo pipefail
+          while read -r image; do
+            [ -n "${image}" ] || continue
+            echo "=== ${image} ==="
+            trivy image \
+              --scanners vuln \
+              --ignore-unfixed \
+              --severity HIGH,CRITICAL \
+              --exit-code 1 \
+              "${image}"
+          done < <(PROJECT=ecommerce-shop deploy/helm/scripts/build-images.sh --print-tags)
+
   gitleaks:
     name: Gitleaks
     runs-on: ubuntu-latest
