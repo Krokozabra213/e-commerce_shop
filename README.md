@@ -47,7 +47,8 @@ make dev-up
   `docker-compose.yaml` (postgres/postgres, redis/redis, mongo admin/admin123).
   **Существующие `.env` не перезаписываются** — их можно спокойно править;
 * `services/auth-service/certs/jwt-private.pem` — приватный ключ подписи JWT
-  (генерируется RSA-2048, права `600`).
+  (генерируется RSA-2048, права `644`: контейнеры работают от uid 65534 и должны
+  его читать — см. «Безопасность образов»).
 
 Файлы `.env` и `*.pem` в git не хранятся (`.gitignore`), поэтому у каждого
 разработчика они свои. Повторный `make dev-up` ничего не перезапишет.
@@ -235,3 +236,30 @@ git tag v1.2.3 && git push && git push --tags
 
 GitHub Actions соберёт образы `ghcr.io/krokozabra213/<сервис>:v1.2.3`
 (`.github/workflows/deploy.yaml`).
+
+## Безопасность образов
+
+Все прикладные образы (`services/*/Dockerfile` и `services/*/Migrate.Dockerfile`)
+собираются по одной схеме:
+
+* финальный слой — `gcr.io/distroless/static-debian12:nonroot`: нет shell,
+  пакетного менеджера и busybox; `ca-certificates`, `tzdata` и `nsswitch.conf`
+  уже внутри. Поэтому поды не требуют shell (пробы — `httpGet`, init-контейнеры
+  ожидания используют отдельный `busybox`);
+* бинарь собирается с `CGO_ENABLED=0` — это обязательное условие для
+  `distroless/static`, в образе нет libc;
+* в образе стоит `USER 65534:65534` (совпадает с
+  `defaults.podSecurityContext.runAsUser/runAsGroup` в чарте и с `user:` в
+  `docker-compose.yaml`). Раньше `USER` не было, и образы запускались от root;
+* в Kubernetes это дополнительно подкреплено `runAsNonRoot: true`,
+  `readOnlyRootFilesystem: true`, `allowPrivilegeEscalation: false` и
+  `capabilities.drop: [ALL]` (`deploy/helm/ecommerce-shop/values.yaml`);
+* CI (job `image-scan`) собирает все 10 образов, проверяет, что `Config.User`
+  не root, и сканирует их `trivy image` (HIGH/CRITICAL). В `deploy.yaml` те же
+  проверки стоят **до** push в GHCR.
+
+Приватный ключ JWT в образ не попадает: в K8s он монтируется из Secret
+(`defaultMode: 0440`, доступ через `fsGroup: 65534`), в docker compose — с хоста.
+Так как контейнер работает от uid 65534, локальный ключ должен быть читаем для
+всех: `make dev-up` (`scripts/dev-init.sh`) выставляет `0644`. Это dev-only ключ;
+в проде используется отдельный Secret.

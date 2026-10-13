@@ -4,6 +4,7 @@ services:
     build:
       context: ../..
       dockerfile: services/product-service/Dockerfile
+    user: "65534:65534"
     restart: always
     ports:
       - "8300:8300"

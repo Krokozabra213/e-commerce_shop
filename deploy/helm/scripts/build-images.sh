@@ -10,6 +10,13 @@
 #   TAG       тег; по умолчанию — appVersion чарта приложения.
 #   PUSH      1 = docker push после сборки.
 #   PLATFORM  например linux/amd64.
+#   CACHE_FROM / CACHE_TO — значения для buildx --cache-from/--cache-to
+#                          (например, type=gha,mode=max); пусто = без кэша.
+#
+# Флаги:
+#   --print-tags  вывести имена образов (используется в CI) и выйти.
+#   --push-only   только запушить уже собранные локально образы; нужен,
+#                 чтобы CI мог собрать -> просканировать -> и лишь потом пушить.
 # =============================================================================
 set -euo pipefail
 
@@ -30,6 +37,9 @@ chart_app_version() {
 TAG="${TAG:-$(chart_app_version)}"
 PUSH="${PUSH:-0}"
 PLATFORM="${PLATFORM:-}"
+CACHE_FROM="${CACHE_FROM:-}"
+CACHE_TO="${CACHE_TO:-}"
+MODE="build"
 
 # Сервис с Dockerfile. Миграции собираются только для сервисов с БД.
 SERVICES=(
@@ -69,6 +79,10 @@ if [ "${1:-}" = "--print-tags" ]; then
   exit 0
 fi
 
+if [ "${1:-}" = "--push-only" ]; then
+  MODE="push"
+fi
+
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
 build() {
@@ -76,6 +90,8 @@ build() {
   log "собираю ${image}"
   local args=(build -f "${dockerfile}" -t "${image}")
   [ -n "${PLATFORM}" ] && args+=(--platform "${PLATFORM}")
+  [ -n "${CACHE_FROM}" ] && args+=(--cache-from "${CACHE_FROM}")
+  [ -n "${CACHE_TO}" ] && args+=(--cache-to "${CACHE_TO}")
   docker "${args[@]}" "${REPO_ROOT}"
   if [ "${PUSH}" = "1" ]; then
     log "пушу ${image}"
@@ -84,6 +100,16 @@ build() {
 }
 
 cd "${REPO_ROOT}"
+
+if [ "${MODE}" = "push" ]; then
+  while read -r image; do
+    [ -z "${image}" ] && continue
+    log "пушу ${image}"
+    docker push "${image}"
+  done < <(all_tags)
+  log "готово"
+  exit 0
+fi
 
 for svc in "${SERVICES[@]}"; do
   build "services/${svc}/Dockerfile" "$(image_name "${svc}")"

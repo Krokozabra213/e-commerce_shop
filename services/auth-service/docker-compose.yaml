@@ -4,6 +4,9 @@ services:
     build:
       context: ../..
       dockerfile: services/auth-service/Dockerfile
+    # Совпадает с USER в образе; ключ JWT должен быть читаем для 65534
+    # (см. scripts/dev-init.sh).
+    user: "65534:65534"
     restart: always
     ports:
       - "8100:8100"
@@ -31,6 +34,7 @@ services:
     build:
       context: ../..
       dockerfile: services/auth-service/Migrate.Dockerfile
+    user: "65534:65534"
     depends_on:
       postgres:
         condition: service_healthy

@@ -93,12 +93,66 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Сборка и push
+      # Сначала собираем локально (без push), затем сканируем и только потом
+      # пушим: непроверенный образ не должен попасть в GHCR.
+      - name: Сборка образов
         env:
           PROJECT: ${{ steps.meta.outputs.project }}
           TAG: ${{ steps.meta.outputs.tag }}
-          PUSH: "1"
+          CACHE_FROM: type=gha
+          CACHE_TO: type=gha,mode=max
         run: deploy/helm/scripts/build-images.sh
+
+      - name: Установить Trivy
+        uses: aquasecurity/setup-trivy@v0.3.1
+        with:
+          version: v0.75.0
+          cache: true
+
+      - name: Проверить, что образы не работают от root
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          PROJECT: ${{ steps.meta.outputs.project }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          while read -r image; do
+            [ -n "${image}" ] || continue
+            user="$(docker image inspect --format '{{.Config.User}}' "${image}")"
+            echo "${image} -> USER=${user:-<пусто = root>}"
+            case "${user}" in
+              65534*|nobody*) ;;
+              *)
+                echo "::error::${image} собран без непривилегированного USER (получено '${user}')"
+                exit 1
+                ;;
+            esac
+          done < <(deploy/helm/scripts/build-images.sh --print-tags)
+
+      - name: Сканировать образы (Trivy)
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          PROJECT: ${{ steps.meta.outputs.project }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          while read -r image; do
+            [ -n "${image}" ] || continue
+            echo "=== ${image} ==="
+            trivy image \
+              --scanners vuln \
+              --ignore-unfixed \
+              --severity HIGH,CRITICAL \
+              --exit-code 1 \
+              "${image}"
+          done < <(deploy/helm/scripts/build-images.sh --print-tags)
+
+      - name: Push в GHCR
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          PROJECT: ${{ steps.meta.outputs.project }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: deploy/helm/scripts/build-images.sh --push-only
 
       - name: Итог
         run: |

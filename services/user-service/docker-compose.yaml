@@ -4,6 +4,7 @@ services:
     build:
       context: ../..
       dockerfile: services/user-service/Dockerfile
+    user: "65534:65534"
     restart: always
     ports:
       - "8200:8200"
@@ -25,6 +26,7 @@ services:
     build:
       context: ../..
       dockerfile: services/user-service/Migrate.Dockerfile
+    user: "65534:65534"
     depends_on:
       postgres:
         condition: service_healthy

@@ -2,24 +2,27 @@ FROM golang:1.26-alpine AS builder
 
 RUN apk add --no-cache git
 
-RUN go install github.com/pressly/goose/v3/cmd/goose@v3.22.1
+# CGO_ENABLED=0 обязателен: финальный образ distroless/static не содержит libc.
+RUN CGO_ENABLED=0 go install github.com/pressly/goose/v3/cmd/goose@v3.22.1
 
 COPY services/user-service/migrations /app/migrations
 
 
-FROM alpine:3.20
-
-RUN apk add --no-cache ca-certificates
+# distroless: без shell и пакетного менеджера; ca-certificates внутри.
+# RUN chmod больше не нужен: COPY сохраняет режим 0755 из builder'а,
+# а в distroless нет shell, чтобы выполнить RUN.
+FROM gcr.io/distroless/static-debian12:nonroot
 
 WORKDIR /app
 
-COPY --from=builder /app/migrations /app/migrations
-COPY --from=builder /go/bin/goose /usr/local/bin/goose
-
-RUN chmod +x /usr/local/bin/goose
+COPY --from=builder --chown=65534:65534 /app/migrations /app/migrations
+COPY --from=builder --chown=65534:65534 /go/bin/goose /usr/local/bin/goose
 
 ENV GOOSE_DRIVER=postgres
 ENV GOOSE_DBSTRING=
 ENV GOOSE_MIGRATION_DIR=/app/migrations
+
+# uid/gid совпадают с securityContext Job'а миграций в deploy/helm/ecommerce-shop.
+USER 65534:65534
 
 CMD ["goose", "up"]
