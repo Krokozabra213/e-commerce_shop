@@ -23,7 +23,10 @@ type Config struct {
 	GRPCInventoryClient infracfg.GRPCClientConfig `yaml:"grpc_inventory_client" env-prefix:"GRPC_INVENTION_CLIENT"`
 	JWTClient           JWTClientConfig           `yaml:"jwt" env-prefix:"JWT_"`
 	RateLimiter         infracfg.RateLimitConfig  `yaml:"rate_limiter" env-prefix:"RATE_LIMIT"`
-	Telemetry           infracfg.TelemetryConfig  `yaml:"telemetry" env-prefix:"TELEMETRY_"`
+	// TrustedProxies — IP/CIDR прокси, чьим заголовкам X-Real-IP/X-Forwarded-For
+	// можно доверять при определении клиента для rate-limit (pod-сеть ingress-nginx).
+	TrustedProxies []string                 `yaml:"trusted_proxies" env-prefix:"TRUSTED_PROXIES"`
+	Telemetry      infracfg.TelemetryConfig `yaml:"telemetry" env-prefix:"TELEMETRY_"`
 }
 
 func Init() (*Config, error) {

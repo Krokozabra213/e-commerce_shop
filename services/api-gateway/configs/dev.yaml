@@ -39,6 +39,10 @@ grpc_inventory_client:
 jwt:
   issuer: "auth-service"
 
+# Доверенные прокси: gateway в docker-compose слушает напрямую, прокси нет,
+# поэтому заголовкам X-Real-IP/X-Forwarded-For не верим — клиент берём из TCP.
+trusted_proxies: []
+
 rate_limiter:
   enabled: true
   authenticated:

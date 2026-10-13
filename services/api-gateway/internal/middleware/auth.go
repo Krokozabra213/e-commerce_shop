@@ -67,3 +67,20 @@ func UserIDFromCtx(c fiber.Ctx) (uuid.UUID, bool) {
 	}
 	return v, true
 }
+
+func NewOptionalJWTMiddleware(validator JWTValidator) fiber.Handler {
+	return func(c fiber.Ctx) error {
+		token := extractBearerToken(c)
+		if token == "" {
+			return c.Next()
+		}
+		claims, err := validator.ValidateAccess(token)
+		if err != nil {
+			return c.Next()
+		}
+		if userID, err := claims.UserIDUUID(); err == nil {
+			c.Locals(ctxKeyUserID, userID)
+		}
+		return c.Next()
+	}
+}
