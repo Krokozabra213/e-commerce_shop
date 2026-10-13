@@ -62,6 +62,10 @@ jwt:
   issuer: "auth-service"
   # publicKeyPath / jwksEndpoint не задаются: ключ получается у auth-service по HTTP при старте.
 
+# IP/CIDR доверенных прокси (pod-сеть ingress-nginx): только им лимитер доверяет
+# заголовок X-Real-IP при определении анонимного клиента. См. rateLimiter.trustedProxies.
+trusted_proxies: {{ .Values.rateLimiter.trustedProxies | toJson }}
+
 rate_limiter:
   enabled: {{ .Values.rateLimiter.enabled }}
   authenticated:

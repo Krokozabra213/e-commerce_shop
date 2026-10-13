@@ -9,7 +9,7 @@ const (
 
 	HeaderRateLimitLimit      = "X-RateLimit-Limit"
 	HeaderRateLimitRemaining  = "X-RateLimit-Remaining"
-	HeaderRateLimitRetryAfter = "X-RateLimit-RetryAfter"
+	HeaderRateLimitRetryAfter = "Retry-After"
 	HeaderRateLimitReset      = "X-RateLimit-Reset"
 
 	AuthSchemeBearer = "Bearer"

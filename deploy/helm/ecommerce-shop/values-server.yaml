@@ -26,6 +26,11 @@ logging:
 observability:
   enabled: false
 
+# pod-сеть k3s, откуда к gateway подключается ingress-nginx.
+rateLimiter:
+  trustedProxies:
+    - "10.42.0.0/16"
+
 # В prod Secret создаётся заранее скриптом и не управляется Helm.
 secrets:
   create: false

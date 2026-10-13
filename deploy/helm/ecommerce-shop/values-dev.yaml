@@ -17,6 +17,12 @@ logging:
 observability:
   enabled: false
 
+# pod-сеть k3d/k3s, откуда к gateway подключается ingress-nginx; только для этих
+# адресов лимитер доверяет заголовку X-Real-IP.
+rateLimiter:
+  trustedProxies:
+    - "10.42.0.0/16"
+
 secrets:
   create: true
   values:

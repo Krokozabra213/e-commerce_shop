@@ -2519,7 +2519,7 @@ components:
           schema:
             type: integer
           example: 0
-        X-RateLimit-RetryAfter:
+        Retry-After:
           description: Через сколько секунд можно повторить
           schema:
             type: integer

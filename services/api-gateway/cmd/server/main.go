@@ -99,7 +99,7 @@ func run() error {
 
 	jwtMiddleware := middleware.NewJWTMiddleware(rs256Validator)
 	rolesMiddleware := middleware.NewRolesMiddleware(userHTTPClient)
-	rateLimitMiddleware := middleware.NewRateLimitMiddleware(limiter, cfg.RateLimiter, log)
+	rateLimitMiddleware := middleware.NewRateLimitMiddleware(limiter, cfg.RateLimiter, cfg.TrustedProxies, log)
 
 	authHandler := auth.NewHandler(authHTTPClient)
 	orderHandler := order.NewHandler(orderHTTPClient)
@@ -108,8 +108,13 @@ func run() error {
 	userHandler := user.NewHandler(userHTTPClient)
 
 	loggerRequestIDMiddleware := inframiddleware.RequestLogger(log)
+	optionalJWTMiddleware := middleware.NewOptionalJWTMiddleware(rs256Validator)
 	errorHandler := inframiddleware.NewErrorHandler(log)
-	httpServer := httpx.NewFiberServer(cfg.HTTP, log, errorHandler, rateLimitMiddleware, loggerRequestIDMiddleware)
+	httpServer := httpx.NewFiberServer(cfg.HTTP, log, errorHandler,
+		optionalJWTMiddleware,
+		loggerRequestIDMiddleware,
+		rateLimitMiddleware,
+	)
 
 	httpServer.App.Get("/swagger/*", swaggo.New(swaggo.Config{
 		URL:         "/api/openapi.yaml",
