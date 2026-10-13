@@ -2,8 +2,10 @@ FROM golang:1.26-alpine AS builder
 
 RUN apk add --no-cache git
 
-# CGO_ENABLED=0 обязателен: финальный образ distroless/static не содержит libc.
-RUN CGO_ENABLED=0 go install github.com/pressly/goose/v3/cmd/goose@v3.22.1
+# Версия goose определяет зависимости бинаря: у v3.22.1 в транзитивных
+# зависимостях были уязвимости (pgx, x/crypto, x/net, grpc), которые видит
+# `trivy image`. v3.29.0 подтягивает пропатченные версии.
+RUN CGO_ENABLED=0 go install github.com/pressly/goose/v3/cmd/goose@v3.29.0
 
 COPY services/user-service/migrations /app/migrations
 

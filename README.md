@@ -254,6 +254,11 @@ GitHub Actions соберёт образы `ghcr.io/krokozabra213/<сервис>
 * в Kubernetes это дополнительно подкреплено `runAsNonRoot: true`,
   `readOnlyRootFilesystem: true`, `allowPrivilegeEscalation: false` и
   `capabilities.drop: [ALL]` (`deploy/helm/ecommerce-shop/values.yaml`);
+* образы миграций (`*-migrate`) дополнительно содержат бинарь `goose`, и именно
+  его транзитивные зависимости ловит `trivy image`. При обновлении goose
+  (`go install ...@vX.Y.Z` в `services/*/Migrate.Dockerfile`) обязательно
+  прогоняйте сканирование: у v3.22.1 внутри были уязвимые `pgx`, `x/crypto`,
+  `x/net` и `grpc` — сейчас зафиксирован v3.29.0;
 * CI (job `image-scan`) собирает все 10 образов, проверяет, что `Config.User`
   не root, и сканирует их `trivy image` (HIGH/CRITICAL). В `deploy.yaml` те же
   проверки стоят **до** push в GHCR.
